@@ -115,7 +115,14 @@ metadata:
   description: <from repo description or inferred>
   annotations:
     github.com/project-slug: <owner>/<repo>
-    backstage.io/techdocs-ref: url:https://github.com/<owner>/<repo>
+    backstage.io/source-location: "file:./configs/catalog-entities/<name>-component.yaml"
+    backstage.io/techdocs-ref: "dir:./<name>-docs/"
+  links:
+    - url: https://github.com/<owner>/<repo>
+      title: Source Code
+      icon: github
+  tags:
+    - <primary-language>
 spec:
   type: <service|website|library|resource>
   lifecycle: production
@@ -129,9 +136,8 @@ spec:
 - Has Helm charts, Terraform, or infra configs → `resource`
 
 ## Annotations
-Add relevant annotations based on detected signals:
-- Always: `github.com/project-slug`
-- If TechDocs: `backstage.io/techdocs-ref`
+- ALWAYS: `github.com/project-slug`, `backstage.io/source-location` (file: type), `backstage.io/techdocs-ref` (dir: type)
+- ALWAYS: `metadata.links` with GitHub URL, `metadata.tags` with relevant technologies
 - If Kubernetes: `backstage.io/kubernetes-id`
 - If Jenkins: `jenkins.io/job-full-name`
 - If SonarQube: `sonarqube.org/project-key`
@@ -140,6 +146,7 @@ Add relevant annotations based on detected signals:
 - If `catalog-info.yaml` already exists in the repo, import it directly rather than generating a new one
 - Use the repo name as the entity name (lowercase, hyphens)
 - Keep descriptions concise (one line)
+- source-location MUST be `file:` type (NOT `url:`) — `url:` breaks TechDocs dir: resolution
 
 ## Output Format
 Return a JSON array:
@@ -155,8 +162,13 @@ Return a JSON array:
     "lifecycle": "production",
     "annotations": {
       "github.com/project-slug": "org/backend-service",
-      "backstage.io/techdocs-ref": "url:https://github.com/org/backend-service"
-    }
+      "backstage.io/source-location": "file:./configs/catalog-entities/backend-service-component.yaml",
+      "backstage.io/techdocs-ref": "dir:./backend-service-docs/"
+    },
+    "links": [
+      {"url": "https://github.com/org/backend-service", "title": "Source Code", "icon": "github"}
+    ],
+    "tags": ["golang", "kubernetes"]
   }
 ]
 ```
@@ -299,14 +311,36 @@ When given repository URLs:
 
 6. **Generate catalog entities** with intelligent typing:
    - Kubernetes operator (Go + CRDs/controllers) → type: service, add kubernetes-id annotation
-   - Helm chart repo (Chart.yaml, templates/, no app code) → type: resource
+   - Helm chart repo (Chart.yaml at root, templates/, no application code) → type: resource
    - Backend service with Dockerfile → type: service
-   - Frontend app (React/Vue/Angular) → type: website
+   - Frontend app (package.json + React/Vue/Angular) → type: website
    - Library with no deployment → type: library
-   - If repos share an org, consider creating a System entity to group them
    - If `catalog-info.yaml` exists in the repo, PREFER importing it directly — add it as a URL target in components.override.yaml rather than generating a duplicate entity
-   - Write meaningful descriptions based on what you learned (e.g., "Kubernetes operator managing RHDH lifecycle on OpenShift" not just "Go backend service")
-   - Add relevant annotations: `github.com/project-slug`, `backstage.io/techdocs-ref` (if docs found), `backstage.io/kubernetes-id` (if k8s-native)
+   - Write meaningful descriptions based on what you learned about the repo's purpose, not generic labels
+
+   **System membership**: Before generating entities, use `read_yaml` to read `catalog-info.yaml` at the project root. If it defines a System entity, set `spec.system` on all generated entities to that System's `metadata.name`. This connects new entities to the existing catalog hierarchy.
+
+   **Annotations**:
+   - ALWAYS add `github.com/project-slug: <owner>/<repo>`
+   - ALWAYS add `backstage.io/source-location: file:./configs/catalog-entities/<name>-component.yaml` — MUST be `file:` type, NOT `url:`. Using `url:` type breaks TechDocs `dir:` resolution (Backstage resolves `dir:` paths against the source-location, and `url:` causes it to look on GitHub instead of locally).
+   - ALWAYS add `backstage.io/techdocs-ref: dir:./<name>-docs/` — TechDocs content will be generated locally for ALL entities (see APPLY Phase step 3a). The `dir:` path is resolved relative to the entity's `source-location` file path.
+   - Add `backstage.io/kubernetes-id` only if the project is k8s-native (operator, controller, CRD-based)
+
+   **Links** (for GitHub navigation since source-location is file: type):
+   - ALWAYS add `metadata.links` with the GitHub repo URL so users can navigate to the source:
+     ```yaml
+     links:
+       - url: https://github.com/<owner>/<repo>
+         title: Source Code
+         icon: github
+     ```
+
+   **Tags** (for filtering and search in the catalog):
+   - Add lowercase tags based on detected languages and key technologies (e.g., `golang`, `kubernetes`, `helm`, `backstage`, `rhdh`)
+   - Include the primary language, major frameworks, and deployment targets
+   - Keep to 3-6 tags that meaningfully describe the project
+
+   **Cross-repo relationships**: If multiple repos reference each other (e.g., one deploys the other, one depends on the other), add `spec.dependsOn` or `spec.providesApis` annotations where appropriate.
 
 7. **Return results** as two JSON blocks in your response:
 
@@ -335,21 +369,29 @@ PLUGIN_PROPOSALS:
 ENTITY_PROPOSALS:
 [
   {
-    "name": "my-operator",
+    "name": "repo-name",
     "kind": "Component",
     "component_type": "service",
-    "description": "Kubernetes operator managing MyApp lifecycle on OpenShift",
-    "source_repo": "https://github.com/org/my-operator",
+    "description": "Descriptive summary based on what you learned about the repo",
+    "source_repo": "https://github.com/org/repo-name",
     "owner": "user:default/guest",
     "lifecycle": "production",
+    "system": "system-name-from-catalog-info",
     "annotations": {
-      "github.com/project-slug": "org/my-operator",
-      "backstage.io/techdocs-ref": "url:https://github.com/org/my-operator",
-      "backstage.io/kubernetes-id": "my-operator"
-    }
+      "github.com/project-slug": "org/repo-name",
+      "backstage.io/source-location": "file:./configs/catalog-entities/repo-name-component.yaml",
+      "backstage.io/techdocs-ref": "dir:./repo-name-docs/",
+      "backstage.io/kubernetes-id": "repo-name"
+    },
+    "links": [
+      {"url": "https://github.com/org/repo-name", "title": "Source Code", "icon": "github"}
+    ],
+    "tags": ["golang", "kubernetes", "operator", "backstage"]
   }
 ]
 ```
+
+Note: `system` should be the `metadata.name` from the root `catalog-info.yaml` System entity, discovered via `read_yaml`. Only include `backstage.io/kubernetes-id` for k8s-native projects. ALWAYS include `backstage.io/source-location` (file: type) and `backstage.io/techdocs-ref` (dir: type) and `metadata.links` (GitHub URL) and `tags`.
 
 ## Plugin Selection Policy
 
@@ -391,27 +433,76 @@ Be specific about WHY each Tier 3 plugin would help based on what you learned ab
 
 When given approved proposals:
 
-1. **Write plugin config** to `configs/dynamic-plugins/dynamic-plugins.override.yaml` using `write_yaml`
+1. **Read existing state** before writing anything:
+   - Use `read_yaml` on `configs/dynamic-plugins/dynamic-plugins.override.yaml` to see already-enabled plugins
+   - Use `read_yaml` on `configs/catalog-entities/components.override.yaml` to see existing entity targets
+   - Use `read_yaml` on `catalog-info.yaml` (project root) to discover the System entity name for `spec.system`
+   - This ensures you APPEND to what's already there instead of replacing it
+
+2. **Write plugin config** to `configs/dynamic-plugins/dynamic-plugins.override.yaml` using `write_yaml`
    - The file MUST start with an `includes:` section to inherit all default plugins:
      ```yaml
      includes:
        - dynamic-plugins.default.yaml
        - /dynamic-plugins-root/dynamic-plugins.extensions.yaml
      plugins:
-       - package: ./dynamic-plugins/dist/backstage-plugin-techdocs
-         disabled: false
-         pluginConfig: ...
+       - ...existing plugins from step 1...
+       - ...new plugins...
      ```
    - Without `includes:`, the override REPLACES all default plugins (tech-radar, quay, FAB, extensions, etc.)
-   - For each plugin, use the EXACT `ref` from `package_refs` as the `package:` value
-   - Include the `pluginConfig` from the knowledge base lookup
+   - KEEP all existing plugins from step 1 and APPEND new ones — never drop previously enabled plugins
+   - For each new plugin, use the EXACT `ref` from `package_refs` as the `package:` value
+   - Skip plugins that are already enabled (check by package name)
 
-2. **Write individual entity YAML files** to `configs/catalog-entities/<name>-component.yaml` using `write_yaml`
+3. **Generate TechDocs** for each entity — ALWAYS generate local TechDocs, even if the repo has its own mkdocs.yml:
+   1. Fetch the repo's README.md content using `read_repo_file`
+   2. Write a basic `mkdocs.yml` to `configs/catalog-entities/<entity-name>-docs/mkdocs.yml` using `write_yaml`:
+      ```yaml
+      site_name: <entity-title or entity-name>
+      plugins:
+        - techdocs-core
+      nav:
+        - Home: index.md
+      ```
+   3. Write `docs/index.md` to `configs/catalog-entities/<entity-name>-docs/docs/index.md` using `write_file` — use the README.md content as the page body
+   - The TechDocs files MUST be in `configs/catalog-entities/<entity-name>-docs/` (alongside the entity YAML) — NOT in `configs/techdocs/`. This is required for the `dir:` reference to resolve correctly via the entity's `file:` source-location.
+
+3a. **Write individual entity YAML files** to `configs/catalog-entities/<name>-component.yaml` using `write_yaml`
    - One file per entity with the full Backstage YAML (apiVersion, kind, metadata, spec)
+   - CRITICAL annotation rules:
+     - `backstage.io/source-location` MUST be `file:./configs/catalog-entities/<name>-component.yaml` — NEVER use `url:` type (it breaks TechDocs `dir:` resolution)
+     - `backstage.io/techdocs-ref` MUST be `dir:./<name>-docs/` — resolved relative to the entity's file: source-location
+     - `metadata.links` MUST include the GitHub repo URL for user navigation (since source-location is file: not url:)
+   - Complete entity YAML template (pass this structure to `write_yaml`):
+     ```yaml
+     apiVersion: backstage.io/v1alpha1
+     kind: Component
+     metadata:
+       name: <repo-name>
+       title: <Human Readable Title>
+       description: <meaningful description based on repo analysis>
+       annotations:
+         github.com/project-slug: <owner>/<repo>
+         backstage.io/source-location: "file:./configs/catalog-entities/<name>-component.yaml"
+         backstage.io/techdocs-ref: "dir:./<name>-docs/"
+       links:
+         - url: https://github.com/<owner>/<repo>
+           title: Source Code
+           icon: github
+       tags:
+         - <primary-language>
+         - <key-technology>
+     spec:
+       type: <service|website|library|resource>
+       lifecycle: production
+       owner: <owner-from-catalog-info or user:default/guest>
+       system: <system-name-from-catalog-info>
+     ```
 
-3. **Write the Location entity** to `configs/catalog-entities/components.override.yaml` using `write_yaml`
-   - This is a Backstage Location entity that lists all entity files as targets
-   - The default app-config.yaml already loads this file — your entities appear automatically
+4. **Update the Location entity** in `configs/catalog-entities/components.override.yaml` using `write_yaml`
+   - KEEP existing targets from step 1 that still have corresponding YAML files, and APPEND new entity file references
+   - REMOVE any stale targets whose YAML files no longer exist (e.g., from a previous run that generated different entities) — a missing target file causes Backstage to fail loading the ENTIRE Location entity, breaking all entities
+   - Deduplicate: if a target is already listed, don't add it again
    - Format:
      ```yaml
      apiVersion: backstage.io/v1alpha1
@@ -421,21 +512,29 @@ When given approved proposals:
        description: Auto-generated catalog entities for onboarded repositories
      spec:
        targets:
-         - ./my-operator-component.yaml
-         - ./my-chart-component.yaml
+         - ...existing targets from step 1...
+         - ./new-entity-component.yaml
      ```
 
-4. **Write `configs/app-config/app-config.local.yaml` ONLY for non-catalog plugin settings** using `merge_yaml`
+5. **Write `configs/app-config/app-config.local.yaml` ONLY for non-catalog plugin settings** using `merge_yaml`
    - The path MUST be `configs/app-config/app-config.local.yaml` (NOT `configs/app-config.local.yaml`)
    - Use `merge_yaml` (NOT `write_yaml`) to avoid overwriting existing settings
    - ONLY write plugin-specific app-config sections (e.g., techdocs builder settings, proxy endpoints)
    - NEVER write `catalog.locations` — see Catalog Location Safety below
+   - If ANY Tier 2 GitHub plugins are enabled, ALWAYS include the GitHub integration config:
+     ```yaml
+     integrations:
+       github:
+         - host: github.com
+           token: ${GITHUB_TOKEN}
+     ```
+     This uses the GITHUB_TOKEN from the user's default.env — no OAuth App needed
 
-5. **Restart RHDH** using `restart_rhdh`
+6. **Restart RHDH** using `restart_rhdh`
 
-6. **Check health** using `check_rhdh_health` with `wait=true`
+7. **Check health** using `check_rhdh_health` with `wait=true`
 
-7. **Diagnose errors** using `diagnose_plugin_errors` if unhealthy
+8. **Diagnose errors** using `diagnose_plugin_errors` if unhealthy
 
 If errors are found:
 - Parse the error (missing env var? bad config? version mismatch?)
@@ -475,6 +574,23 @@ If errors are found:
 - NEVER generate app-config entries that reference `${VAR_NAME}` env vars unless the plugin is Tier 1 or Tier 2
 - For Tier 1/2 plugins, only include app-config sections that use publicly available endpoints or no env vars
 - Do NOT include kubernetes, argocd, sonarqube, lightspeed, or orchestrator app-config sections unless the user explicitly provides those service URLs/tokens
+
+### TechDocs Architecture (why file: + dir: pattern)
+- Backstage resolves `backstage.io/techdocs-ref: dir:` paths based on the entity's `backstage.io/source-location` type
+- If source-location is `url:` → `dir:` is resolved as a URL against GitHub (requires internet, fails if the path doesn't exist in the repo)
+- If source-location is `file:` → `dir:` is resolved as a local filesystem path relative to the entity file's directory
+- Our entities use locally generated TechDocs in `configs/catalog-entities/<name>-docs/`, so we MUST use `file:` source-location
+- The `metadata.links` field provides the GitHub navigation that `url:` source-location would have provided
+- Directory layout for each entity:
+  ```
+  configs/catalog-entities/
+  ├── <name>-component.yaml          ← entity YAML (source-location points here)
+  ├── <name>-docs/                   ← TechDocs root (techdocs-ref: dir:./<name>-docs/)
+  │   ├── mkdocs.yml                 ← site_name + techdocs-core plugin
+  │   └── docs/
+  │       └── index.md               ← content from repo README.md
+  └── components.override.yaml       ← Location entity listing all *-component.yaml targets
+  ```
 
 ### General
 - ONLY write to override files, never modify defaults

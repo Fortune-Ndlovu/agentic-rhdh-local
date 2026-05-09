@@ -73,6 +73,29 @@ def append_to_yaml_list(path: str | Path, key: str, items: list[Any]) -> Path:
     return write_yaml(path, data)
 
 
+def write_text_file(path: str | Path, content: str, *, backup: bool = True) -> Path:
+    """Atomically write text content to a file. Creates parent dirs and backups."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if backup and path.exists():
+        backup_path = path.with_suffix(f"{path.suffix}.bak")
+        shutil.copy2(path, backup_path)
+
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with open(fd, "w") as f:
+            f.write(content)
+        import os
+        os.chmod(tmp_path, 0o644)
+        Path(tmp_path).rename(path)
+    except Exception:
+        Path(tmp_path).unlink(missing_ok=True)
+        raise
+
+    return path
+
+
 def _deep_merge(base: dict, override: dict) -> None:
     for k, v in override.items():
         if k in base and isinstance(base[k], dict) and isinstance(v, dict):

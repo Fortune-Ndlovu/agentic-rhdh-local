@@ -57,6 +57,18 @@ GET_REPO_INFO_TOOL: dict[str, Any] = {
     },
 }
 
+READ_YAML_TOOL: dict[str, Any] = {
+    "name": "read_yaml",
+    "description": "Read and parse a local YAML file relative to the project root. Returns the parsed content as JSON. Use this to check existing config before writing — e.g., read components.override.yaml to see existing entity targets before adding new ones, or read dynamic-plugins.override.yaml to see already-enabled plugins.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "File path relative to project root"},
+        },
+        "required": ["path"],
+    },
+}
+
 WRITE_YAML_TOOL: dict[str, Any] = {
     "name": "write_yaml",
     "description": "Atomically write YAML content to a file. Creates backups, validates YAML, and creates parent directories. WARNING: this REPLACES the entire file. Use merge_yaml instead when you need to add settings without overwriting existing content.",
@@ -147,8 +159,21 @@ LOOKUP_PLUGIN_CONFIG_TOOL: dict[str, Any] = {
     },
 }
 
+WRITE_FILE_TOOL: dict[str, Any] = {
+    "name": "write_file",
+    "description": "Write arbitrary text content to a file (for markdown, etc.). Creates parent directories and backups. Use write_yaml for YAML files instead.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "File path relative to project root"},
+            "content": {"type": "string", "description": "Text content to write"},
+        },
+        "required": ["path", "content"],
+    },
+}
+
 SCANNER_TOOLS = [SCAN_REPO_TREE_TOOL, READ_REPO_FILE_TOOL, GET_REPO_LANGUAGES_TOOL, GET_REPO_INFO_TOOL]
-CONFIG_WRITER_TOOLS = [WRITE_YAML_TOOL, MERGE_YAML_TOOL, RESTART_RHDH_TOOL, CHECK_RHDH_HEALTH_TOOL, DIAGNOSE_PLUGIN_ERRORS_TOOL, READ_CONTAINER_LOGS_TOOL]
+CONFIG_WRITER_TOOLS = [READ_YAML_TOOL, WRITE_YAML_TOOL, MERGE_YAML_TOOL, WRITE_FILE_TOOL, RESTART_RHDH_TOOL, CHECK_RHDH_HEALTH_TOOL, DIAGNOSE_PLUGIN_ERRORS_TOOL, READ_CONTAINER_LOGS_TOOL]
 KNOWLEDGE_TOOLS = [LOOKUP_PLUGIN_CONFIG_TOOL]
 
 ALL_TOOLS = SCANNER_TOOLS + KNOWLEDGE_TOOLS + CONFIG_WRITER_TOOLS

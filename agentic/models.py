@@ -112,23 +112,34 @@ class CatalogEntityProposal(BaseModel):
     source_repo: str = ""
     owner: str = "user:default/guest"
     lifecycle: Lifecycle = Lifecycle.PRODUCTION
+    system: str = ""
     annotations: dict[str, str] = Field(default_factory=dict)
+    links: list[dict[str, str]] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     accepted: bool = True
 
     def to_yaml_dict(self) -> dict[str, Any]:
+        spec: dict[str, Any] = {
+            "type": self.component_type.value,
+            "lifecycle": self.lifecycle.value,
+            "owner": self.owner,
+        }
+        if self.system:
+            spec["system"] = self.system
+        metadata: dict[str, Any] = {
+            "name": self.name,
+            "description": self.description,
+            "annotations": self.annotations,
+        }
+        if self.links:
+            metadata["links"] = self.links
+        if self.tags:
+            metadata["tags"] = self.tags
         return {
             "apiVersion": "backstage.io/v1alpha1",
             "kind": self.kind,
-            "metadata": {
-                "name": self.name,
-                "description": self.description,
-                "annotations": self.annotations,
-            },
-            "spec": {
-                "type": self.component_type.value,
-                "lifecycle": self.lifecycle.value,
-                "owner": self.owner,
-            },
+            "metadata": metadata,
+            "spec": spec,
         }
 
 
