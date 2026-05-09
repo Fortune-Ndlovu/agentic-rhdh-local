@@ -40,10 +40,20 @@ def compose_run(
 
 
 def restart_rhdh(project_root: Path) -> tuple[bool, str]:
-    """Restart the RHDH container. Returns (success, output)."""
-    result = compose_run("restart", project_root, service="rhdh", timeout=60)
-    success = result.returncode == 0
-    output = result.stdout + result.stderr
+    """Restart RHDH by cycling containers so the plugin installer re-runs."""
+    compose = detect_compose_command(project_root)
+    down = subprocess.run(
+        [*compose, "down"],
+        capture_output=True, text=True, timeout=60,
+        cwd=str(project_root),
+    )
+    up = subprocess.run(
+        [*compose, "up", "-d"],
+        capture_output=True, text=True, timeout=180,
+        cwd=str(project_root),
+    )
+    success = up.returncode == 0
+    output = down.stdout + down.stderr + up.stdout + up.stderr
     return success, output
 
 

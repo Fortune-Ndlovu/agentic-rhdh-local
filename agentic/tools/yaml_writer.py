@@ -31,6 +31,8 @@ def write_yaml(path: str | Path, data: Any, *, backup: bool = True) -> Path:
     try:
         with open(fd, "w") as f:
             f.write(serialized)
+        import os
+        os.chmod(tmp_path, 0o644)
         Path(tmp_path).rename(path)
     except Exception:
         Path(tmp_path).unlink(missing_ok=True)
