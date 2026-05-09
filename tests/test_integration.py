@@ -68,6 +68,7 @@ def main() -> None:
             messages=messages,
             project_root=project_root,
             on_event=on_event,
+            knowledge_base=kb,
         )
     except Exception as e:
         print(f"\n  ERROR: {e}")
@@ -80,7 +81,10 @@ def main() -> None:
     plugin_proposals, entity_proposals = parse_proposals_from_response(response_content)
     print(f"  Plugin proposals: {len(plugin_proposals)}")
     for p in plugin_proposals:
-        print(f"    - {p.plugin} ({p.confidence.value}) — {p.reason[:60]}")
+        has_refs = bool(p.package_refs)
+        refs_ok = all(r.startswith(("./", "oci://")) for r in p.package_refs.values()) if has_refs else False
+        ref_status = "refs OK" if refs_ok else ("NO REFS" if not has_refs else "BAD REFS")
+        print(f"    - {p.plugin} (T{p.tier}, {p.confidence.value}, {ref_status}) — {p.reason[:60]}")
     print(f"  Entity proposals: {len(entity_proposals)}")
     for e in entity_proposals:
         print(f"    - {e.name} ({e.component_type.value}) — {e.source_repo}")

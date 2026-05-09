@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import anthropic
 
@@ -12,6 +12,9 @@ from ..tools.compose import get_container_logs, restart_rhdh
 from ..tools.github import get_file_content, get_repo_info, get_repo_languages, get_repo_tree
 from ..tools.health_check import check_rhdh_health, diagnose_plugin_errors, wait_for_healthy
 from ..tools.yaml_writer import write_yaml
+
+if TYPE_CHECKING:
+    from ..knowledge.plugin_index import PluginKnowledgeBase
 
 MODEL = "claude-sonnet-4-6"
 
@@ -24,6 +27,7 @@ def run_agent_loop(
     project_root: Path,
     on_event: Callable[[str, dict[str, Any]], None] | None = None,
     max_turns: int = 25,
+    knowledge_base: PluginKnowledgeBase | None = None,
 ) -> list[dict[str, Any]]:
     """Run the Messages API tool-use loop until the agent finishes.
 
@@ -60,7 +64,7 @@ def run_agent_loop(
                     if on_event:
                         on_event("tool_use", {"tool": block.name, "input": block.input})
 
-                    result = dispatch_tool(block.name, block.input, project_root)
+                    result = dispatch_tool(block.name, block.input, project_root, knowledge_base)
 
                     if on_event:
                         on_event("tool_result", {"tool": block.name, "result": result})
@@ -78,10 +82,23 @@ def run_agent_loop(
     return assistant_content
 
 
-def dispatch_tool(name: str, tool_input: dict[str, Any], project_root: Path) -> dict[str, Any]:
+def dispatch_tool(
+    name: str,
+    tool_input: dict[str, Any],
+    project_root: Path,
+    knowledge_base: PluginKnowledgeBase | None = None,
+) -> dict[str, Any]:
     """Execute a tool locally and return the result."""
     try:
-        if name == "scan_repo_tree":
+        if name == "lookup_plugin_config":
+            if not knowledge_base:
+                return {"error": "Knowledge base not available"}
+            details = knowledge_base.get_plugin_config_details(tool_input["plugin_name"])
+            if not details:
+                return {"error": f"Plugin '{tool_input['plugin_name']}' not found in knowledge base"}
+            return details
+
+        elif name == "scan_repo_tree":
             tree = get_repo_tree(tool_input["owner"], tool_input["repo"])
             return {"files": tree, "count": len(tree)}
 

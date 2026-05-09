@@ -305,12 +305,19 @@ The original implementation used Anthropic Managed Agents SDK (`client.beta.agen
 
 - [x] Integration testing with real repos
   - Tested full scan+propose pipeline against `redhat-developer/rhdh-local` via Vertex AI
-  - Agent detected 15 plugins (GitHub Actions, TechDocs, Quay, Orchestrator, Lightspeed, etc.) and 5 catalog entities
-  - Fixed JSON parsing: bracket-balanced extraction for non-code-block JSON, strip label prefixes (`PLUGIN_PROPOSALS:`) from code blocks
-  - Fixed Pydantic model resilience: filter unknown fields, fallback for invalid enum values (`component_type: "tool"` → `"service"`)
-  - Added `development` to `Lifecycle` enum (valid Backstage lifecycle value)
-  - Removed `thinking` block serialization (not supported on Vertex AI without extended thinking)
+  - Fixed JSON parsing: bracket-balanced extraction, strip label prefixes from code blocks
+  - Fixed Pydantic model resilience: filter unknown fields, fallback for invalid enum values
+  - Added `development` to `Lifecycle` enum
   - Integration test script at `tests/test_integration.py`
+- [x] Tiered plugin recommendations + OCI refs
+  - Enhanced `to_agent_context()` with package refs, roles, tier classification, env var info
+  - Added `lookup_plugin_config` tool — agent calls it to get exact pluginConfig on demand
+  - Tiered selection policy: Tier 1 (bundled, zero-config), Tier 2 (needs GITHUB_TOKEN), Tier 3 (advanced, only on request)
+  - Default: max 5 plugins (Tier 1 + 2 only), agent mentions Tier 3 availability
+  - Fixed `_index_dpdy` to capture bundled paths, `_extract_package_name` for @sha256 digests
+  - Added `package_refs` and `tier` to `PluginProposal` model
+  - App-config safety: no `${VAR}` references for unconfigured services
+  - **Result**: Agent now proposes 3-5 plugins (down from 13) with correct OCI refs
 - [ ] Error recovery testing (deliberate misconfigs)
 - [ ] Edge cases (empty repos, private repos, existing catalog-info.yaml)
 - [ ] Unit tests (signal detection, knowledge base, YAML writer, URL parsing)

@@ -114,7 +114,28 @@ READ_CONTAINER_LOGS_TOOL: dict[str, Any] = {
     },
 }
 
+LOOKUP_PLUGIN_CONFIG_TOOL: dict[str, Any] = {
+    "name": "lookup_plugin_config",
+    "description": (
+        "Look up full configuration details for an RHDH plugin by name. "
+        "Returns exact package refs (OCI or bundled paths), pluginConfig, "
+        "required env vars, and tier classification. "
+        "ALWAYS call this before proposing a plugin to get the correct package ref and config."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "plugin_name": {
+                "type": "string",
+                "description": "Plugin name from the knowledge base (e.g. 'github-actions', 'techdocs', 'topology')",
+            },
+        },
+        "required": ["plugin_name"],
+    },
+}
+
 SCANNER_TOOLS = [SCAN_REPO_TREE_TOOL, READ_REPO_FILE_TOOL, GET_REPO_LANGUAGES_TOOL, GET_REPO_INFO_TOOL]
 CONFIG_WRITER_TOOLS = [WRITE_YAML_TOOL, RESTART_RHDH_TOOL, CHECK_RHDH_HEALTH_TOOL, DIAGNOSE_PLUGIN_ERRORS_TOOL, READ_CONTAINER_LOGS_TOOL]
+KNOWLEDGE_TOOLS = [LOOKUP_PLUGIN_CONFIG_TOOL]
 
-ALL_TOOLS = SCANNER_TOOLS + CONFIG_WRITER_TOOLS
+ALL_TOOLS = SCANNER_TOOLS + KNOWLEDGE_TOOLS + CONFIG_WRITER_TOOLS

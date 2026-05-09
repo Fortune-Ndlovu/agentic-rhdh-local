@@ -125,6 +125,37 @@ class PluginKnowledgeBase:
                 _deep_merge(merged, pkg.plugin_config)
         return merged
 
+    def get_plugin_config_details(self, name: str) -> dict[str, Any] | None:
+        """Get full config details for a plugin — used by lookup_plugin_config tool."""
+        info = self.get(name)
+        if not info:
+            results = self.search(name)
+            if results:
+                info = results[0]
+            else:
+                return None
+
+        env_vars = self._get_env_vars_for_plugin(info)
+        tier = self._classify_tier(info, env_vars)
+
+        packages = []
+        for pkg in info.packages:
+            packages.append({
+                "name": pkg.name,
+                "role": pkg.role.value,
+                "ref": pkg.oci_ref,
+                "plugin_config": pkg.plugin_config,
+            })
+
+        return {
+            "plugin": info.name,
+            "title": info.title,
+            "packages": packages,
+            "required_env_vars": sorted(env_vars),
+            "tier": tier,
+            "app_config_examples": info.app_config_examples,
+        }
+
     def get_oci_refs_for_plugin(self, name: str) -> list[str]:
         info = self.get(name)
         if not info:
@@ -136,14 +167,36 @@ class PluginKnowledgeBase:
         lines = ["# Available RHDH Plugins\n"]
         for info in sorted(self.plugins.values(), key=lambda p: p.name):
             cats = ", ".join(info.categories) if info.categories else "uncategorized"
-            pkgs = ", ".join(p.name for p in info.packages)
-            lines.append(f"## {info.title} ({info.name})")
+            env_vars = self._get_env_vars_for_plugin(info)
+            tier = self._classify_tier(info, env_vars)
+            lines.append(f"## {info.title} ({info.name}) [Tier {tier}]")
             lines.append(f"Categories: {cats}")
-            lines.append(f"Packages: {pkgs}")
-            if info.tags:
-                lines.append(f"Tags: {', '.join(info.tags)}")
+            lines.append("Packages:")
+            for pkg in info.packages:
+                ref_label = "[bundled]" if pkg.oci_ref.startswith("./") else "[remote]"
+                lines.append(f"  - {pkg.name} [{pkg.role.value}] {ref_label}")
+                lines.append(f"    ref: {pkg.oci_ref}")
+            if env_vars:
+                lines.append(f"Required env vars: {', '.join(sorted(env_vars))}")
             lines.append("")
         return "\n".join(lines)
+
+    @staticmethod
+    def _get_env_vars_for_plugin(info: PluginInfo) -> set[str]:
+        env_vars: set[str] = set()
+        for pkg in info.packages:
+            config_str = str(pkg.plugin_config)
+            env_vars.update(re.findall(r"\$\{([A-Z_][A-Z0-9_]*)\}", config_str))
+        return env_vars
+
+    @staticmethod
+    def _classify_tier(info: PluginInfo, env_vars: set[str]) -> int:
+        has_bundled = any(p.oci_ref.startswith("./") for p in info.packages)
+        if not env_vars and has_bundled:
+            return 1
+        if env_vars <= {"GITHUB_TOKEN"} and has_bundled:
+            return 2
+        return 3
 
 
 def _index_dpdy(entries: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -154,7 +207,7 @@ def _index_dpdy(entries: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         pkg_name = _extract_package_name(package)
         if pkg_name:
             result[pkg_name] = {
-                "oci_ref": package if package.startswith("oci://") else "",
+                "oci_ref": package,
                 "disabled": entry.get("disabled", True),
                 "pluginConfig": entry.get("pluginConfig", {}),
             }
@@ -171,7 +224,7 @@ def _extract_package_name(package_ref: str) -> str:
     if "!" in package_ref:
         return package_ref.split("!")[-1]
     name = package_ref.split("/")[-1]
-    name = re.sub(r":.*$", "", name)
+    name = re.sub(r"[@:].*$", "", name)
     if name.endswith("-dynamic"):
         name = name[:-8]
     return name

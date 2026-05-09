@@ -92,11 +92,13 @@ class PluginProposal(BaseModel):
     plugin: str  # e.g. "github-actions"
     title: str = ""
     packages: list[str] = Field(default_factory=list)
+    package_refs: dict[str, str] = Field(default_factory=dict)  # name -> full ref
     reason: str = ""
     plugin_config: dict[str, Any] = Field(default_factory=dict)
     required_env_vars: list[str] = Field(default_factory=list)
     confidence: Confidence = Confidence.HIGH
     category: str = ""
+    tier: int = 2
     accepted: bool = True
 
 

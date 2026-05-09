@@ -80,6 +80,8 @@ def _on_event(event_type: str, event_data: dict[str, Any]) -> None:
             console.print(f"  [dim]├── Restarting RHDH...[/dim]")
         elif tool == "check_rhdh_health":
             console.print(f"  [dim]├── Checking health...[/dim]")
+        elif tool == "lookup_plugin_config":
+            console.print(f"  [dim]│   Looking up {tool_input.get('plugin_name', '')}...[/dim]")
         elif tool == "diagnose_plugin_errors":
             console.print(f"  [dim]├── Diagnosing errors...[/dim]")
     elif event_type == "tool_result":
@@ -107,16 +109,19 @@ def show_plugin_proposals(proposals: list[PluginProposal]) -> None:
     table = Table(box=box.ROUNDED)
     table.add_column("#", style="dim", width=3)
     table.add_column("Plugin", style="bold")
+    table.add_column("Tier", width=6)
     table.add_column("Confidence", width=10)
     table.add_column("Category", width=14)
     table.add_column("Reason")
 
     for i, p in enumerate(proposals, 1):
         conf_style = {"high": "green", "medium": "yellow", "low": "red"}.get(p.confidence.value, "white")
+        tier_style = {1: "green", 2: "yellow", 3: "red"}.get(p.tier, "white")
         marker = "✓" if p.accepted else "○"
         table.add_row(
             f"[{'green' if p.accepted else 'dim'}]{marker}[/]",
             p.title or p.plugin,
+            f"[{tier_style}]T{p.tier}[/]",
             f"[{conf_style}]{p.confidence.value}[/]",
             p.category,
             p.reason,
@@ -214,6 +219,11 @@ _ENTITY_FIELDS = {f.alias or name for name, f in CatalogEntityProposal.model_fie
 def _parse_plugin_proposal(item: dict[str, Any]) -> PluginProposal:
     if item.get("confidence") not in _VALID_CONFIDENCES:
         item["confidence"] = "medium"
+    if "tier" in item:
+        try:
+            item["tier"] = int(item["tier"])
+        except (ValueError, TypeError):
+            item["tier"] = 2
     filtered = {k: v for k, v in item.items() if k in _PLUGIN_FIELDS}
     return PluginProposal(**filtered)
 
@@ -349,6 +359,7 @@ def run_app(project_root: Path | None = None) -> None:
             messages=messages,
             project_root=project_root,
             on_event=_on_event,
+            knowledge_base=kb,
         )
     except Exception as e:
         console.print(f"\n[red]Agent failed: {e}[/red]")
@@ -394,6 +405,7 @@ def run_app(project_root: Path | None = None) -> None:
             messages=messages,
             project_root=project_root,
             on_event=_on_event,
+            knowledge_base=kb,
         )
     except Exception as e:
         console.print(f"\n[red]Apply phase failed: {e}[/red]")
