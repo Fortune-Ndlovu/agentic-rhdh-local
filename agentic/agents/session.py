@@ -11,7 +11,7 @@ import anthropic
 from ..tools.compose import get_container_logs, restart_rhdh
 from ..tools.github import get_file_content, get_repo_info, get_repo_languages, get_repo_tree
 from ..tools.health_check import check_rhdh_health, diagnose_plugin_errors, wait_for_healthy
-from ..tools.yaml_writer import write_yaml
+from ..tools.yaml_writer import merge_yaml_file, write_yaml
 
 if TYPE_CHECKING:
     from ..knowledge.plugin_index import PluginKnowledgeBase
@@ -122,6 +122,11 @@ def dispatch_tool(
         elif name == "write_yaml":
             path = project_root / tool_input["path"]
             write_yaml(path, tool_input["content"])
+            return {"success": True, "path": str(path)}
+
+        elif name == "merge_yaml":
+            path = project_root / tool_input["path"]
+            merge_yaml_file(path, tool_input["content"])
             return {"success": True, "path": str(path)}
 
         elif name == "restart_rhdh":

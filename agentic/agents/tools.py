@@ -59,12 +59,25 @@ GET_REPO_INFO_TOOL: dict[str, Any] = {
 
 WRITE_YAML_TOOL: dict[str, Any] = {
     "name": "write_yaml",
-    "description": "Atomically write YAML content to a file. Creates backups, validates YAML, and creates parent directories.",
+    "description": "Atomically write YAML content to a file. Creates backups, validates YAML, and creates parent directories. WARNING: this REPLACES the entire file. Use merge_yaml instead when you need to add settings without overwriting existing content.",
     "input_schema": {
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "File path relative to project root"},
             "content": {"type": "object", "description": "YAML content as a JSON object"},
+        },
+        "required": ["path", "content"],
+    },
+}
+
+MERGE_YAML_TOOL: dict[str, Any] = {
+    "name": "merge_yaml",
+    "description": "Deep-merge YAML content into an existing file. Dict keys are merged recursively; arrays at the same key are REPLACED (Backstage merge semantics). Creates the file if it doesn't exist. Use this for app-config.local.yaml to add plugin-specific settings (techdocs, proxy) without overwriting other sections.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "File path relative to project root"},
+            "content": {"type": "object", "description": "YAML content to deep-merge into the file"},
         },
         "required": ["path", "content"],
     },
@@ -135,7 +148,7 @@ LOOKUP_PLUGIN_CONFIG_TOOL: dict[str, Any] = {
 }
 
 SCANNER_TOOLS = [SCAN_REPO_TREE_TOOL, READ_REPO_FILE_TOOL, GET_REPO_LANGUAGES_TOOL, GET_REPO_INFO_TOOL]
-CONFIG_WRITER_TOOLS = [WRITE_YAML_TOOL, RESTART_RHDH_TOOL, CHECK_RHDH_HEALTH_TOOL, DIAGNOSE_PLUGIN_ERRORS_TOOL, READ_CONTAINER_LOGS_TOOL]
+CONFIG_WRITER_TOOLS = [WRITE_YAML_TOOL, MERGE_YAML_TOOL, RESTART_RHDH_TOOL, CHECK_RHDH_HEALTH_TOOL, DIAGNOSE_PLUGIN_ERRORS_TOOL, READ_CONTAINER_LOGS_TOOL]
 KNOWLEDGE_TOOLS = [LOOKUP_PLUGIN_CONFIG_TOOL]
 
 ALL_TOOLS = SCANNER_TOOLS + KNOWLEDGE_TOOLS + CONFIG_WRITER_TOOLS

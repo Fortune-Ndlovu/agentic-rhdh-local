@@ -74,7 +74,7 @@ def _on_event(event_type: str, event_data: dict[str, Any]) -> None:
             console.print(f"  [dim]│   Reading {tool_input.get('path', '')}...[/dim]")
         elif tool == "get_repo_languages":
             console.print(f"  [dim]│   Checking languages...[/dim]")
-        elif tool == "write_yaml":
+        elif tool in ("write_yaml", "merge_yaml"):
             console.print(f"  [dim]├── Writing {tool_input.get('path', '')}...[/dim]")
         elif tool == "restart_rhdh":
             console.print(f"  [dim]├── Restarting RHDH...[/dim]")
@@ -94,7 +94,7 @@ def _on_event(event_type: str, event_data: dict[str, Any]) -> None:
                 console.print(f"  [green]├── Health check passed ✓[/green]")
             else:
                 console.print(f"  [yellow]├── Health check: {result.get('message', 'unhealthy')}[/yellow]")
-        elif tool == "write_yaml":
+        elif tool in ("write_yaml", "merge_yaml"):
             if result.get("success"):
                 console.print(f"  [green]│   ✓[/green]")
 
