@@ -154,8 +154,4 @@ def _serialize_content(content: list[Any]) -> list[dict[str, Any]]:
                 "name": block.name,
                 "input": block.input,
             })
-        elif block.type == "thinking":
-            serialized.append({"type": "thinking", "thinking": block.thinking})
-        else:
-            serialized.append({"type": block.type})
     return serialized

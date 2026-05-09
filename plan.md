@@ -301,13 +301,20 @@ The original implementation used Anthropic Managed Agents SDK (`client.beta.agen
 
 **Verified:** `AnthropicVertex` client creates successfully with user's GCP credentials. All 9 tools, imports, and CLI entry point work.
 
-### Phase 5: Resilience + Polish — TODO
+### Phase 5: Resilience + Polish — IN PROGRESS
 
-- [ ] Integration testing with real repos
+- [x] Integration testing with real repos
+  - Tested full scan+propose pipeline against `redhat-developer/rhdh-local` via Vertex AI
+  - Agent detected 15 plugins (GitHub Actions, TechDocs, Quay, Orchestrator, Lightspeed, etc.) and 5 catalog entities
+  - Fixed JSON parsing: bracket-balanced extraction for non-code-block JSON, strip label prefixes (`PLUGIN_PROPOSALS:`) from code blocks
+  - Fixed Pydantic model resilience: filter unknown fields, fallback for invalid enum values (`component_type: "tool"` → `"service"`)
+  - Added `development` to `Lifecycle` enum (valid Backstage lifecycle value)
+  - Removed `thinking` block serialization (not supported on Vertex AI without extended thinking)
+  - Integration test script at `tests/test_integration.py`
 - [ ] Error recovery testing (deliberate misconfigs)
 - [ ] Edge cases (empty repos, private repos, existing catalog-info.yaml)
 - [ ] Unit tests (signal detection, knowledge base, YAML writer, URL parsing)
-- [ ] Polish (--verbose flag, --dry-run flag, improved proposal parsing)
+- [ ] Polish (--verbose flag, --dry-run flag)
 
 ---
 

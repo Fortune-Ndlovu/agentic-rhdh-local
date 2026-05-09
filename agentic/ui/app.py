@@ -203,6 +203,30 @@ def show_completion(
             console.print(f"  [dim]- {var}[/dim]")
 
 
+_VALID_COMPONENT_TYPES = {"service", "website", "library", "resource"}
+_VALID_LIFECYCLES = {"production", "experimental", "development", "deprecated"}
+_VALID_CONFIDENCES = {"high", "medium", "low"}
+
+_PLUGIN_FIELDS = {f.alias or name for name, f in PluginProposal.model_fields.items()}
+_ENTITY_FIELDS = {f.alias or name for name, f in CatalogEntityProposal.model_fields.items()}
+
+
+def _parse_plugin_proposal(item: dict[str, Any]) -> PluginProposal:
+    if item.get("confidence") not in _VALID_CONFIDENCES:
+        item["confidence"] = "medium"
+    filtered = {k: v for k, v in item.items() if k in _PLUGIN_FIELDS}
+    return PluginProposal(**filtered)
+
+
+def _parse_entity_proposal(item: dict[str, Any]) -> CatalogEntityProposal:
+    if item.get("component_type") not in _VALID_COMPONENT_TYPES:
+        item["component_type"] = "service"
+    if item.get("lifecycle") not in _VALID_LIFECYCLES:
+        item["lifecycle"] = "production"
+    filtered = {k: v for k, v in item.items() if k in _ENTITY_FIELDS}
+    return CatalogEntityProposal(**filtered)
+
+
 def parse_proposals_from_response(content: list[dict[str, Any]]) -> tuple[list[PluginProposal], list[CatalogEntityProposal]]:
     """Extract structured proposals from agent response content blocks."""
     plugin_proposals: list[PluginProposal] = []
@@ -215,9 +239,10 @@ def parse_proposals_from_response(content: list[dict[str, Any]]) -> tuple[list[P
 
         json_blocks = re.findall(r"```json\s*(.*?)\s*```", text, re.DOTALL)
         if not json_blocks:
-            json_blocks = re.findall(r"(\[[\s\S]*?\])", text)
+            json_blocks = _extract_json_arrays(text)
 
-        for jblock in json_blocks:
+        for raw_block in json_blocks:
+            jblock = re.sub(r"^[^\[{]*", "", raw_block.strip(), count=1)
             try:
                 data = json.loads(jblock)
                 if not isinstance(data, list):
@@ -227,13 +252,49 @@ def parse_proposals_from_response(content: list[dict[str, Any]]) -> tuple[list[P
                     if not isinstance(item, dict):
                         continue
                     if "plugin" in item and ("packages" in item or "plugin_config" in item):
-                        plugin_proposals.append(PluginProposal(**item))
+                        plugin_proposals.append(_parse_plugin_proposal(item))
                     elif "component_type" in item or ("source_repo" in item and "name" in item):
-                        entity_proposals.append(CatalogEntityProposal(**item))
-            except (json.JSONDecodeError, Exception):
+                        entity_proposals.append(_parse_entity_proposal(item))
+            except (json.JSONDecodeError, ValueError, Exception):
                 continue
 
     return plugin_proposals, entity_proposals
+
+
+def _extract_json_arrays(text: str) -> list[str]:
+    """Extract top-level JSON arrays from text using bracket balancing."""
+    results = []
+    i = 0
+    while i < len(text):
+        if text[i] == "[":
+            depth = 0
+            start = i
+            in_string = False
+            escape = False
+            while i < len(text):
+                ch = text[i]
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = not in_string
+                elif not in_string:
+                    if ch == "[":
+                        depth += 1
+                    elif ch == "]":
+                        depth -= 1
+                        if depth == 0:
+                            candidate = text[start : i + 1]
+                            try:
+                                json.loads(candidate)
+                                results.append(candidate)
+                            except json.JSONDecodeError:
+                                pass
+                            break
+                i += 1
+        i += 1
+    return results
 
 
 def run_app(project_root: Path | None = None) -> None:

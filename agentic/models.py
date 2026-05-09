@@ -29,6 +29,7 @@ class ComponentType(str, Enum):
 class Lifecycle(str, Enum):
     PRODUCTION = "production"
     EXPERIMENTAL = "experimental"
+    DEVELOPMENT = "development"
     DEPRECATED = "deprecated"
 
 
