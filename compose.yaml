@@ -1,0 +1,76 @@
+services:
+  # Uncomment the following block to use a PostgreSQL database
+  # don't forget to also uncomment 'depends_on' 'db' section in the rhdh service
+  # and comment out or delete 'database' section in app-config.yaml or app-config.local.yaml
+
+  # db:
+  #   container_name: db
+  #   image: "registry.redhat.io/rhel8/postgresql-16:latest"
+  #   volumes:
+  #     - "/var/lib/pgsql/data"
+  #   env_file:
+  #     - path: "./default.env"
+  #       required: true
+  #     - path: "./.env"
+  #       required: false
+  #   environment:
+  #     - POSTGRESQL_ADMIN_PASSWORD=${POSTGRES_PASSWORD}
+  #   healthcheck:
+  #     test: ["CMD", "pg_isready", "-U", "postgres"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 5
+
+  rhdh:
+    container_name: rhdh
+    image: ${RHDH_IMAGE:-quay.io/rhdh-community/rhdh:1.9}
+    env_file:
+      - path: "./default.env"
+        required: true
+      - path: "./.env"
+        required: false
+    user: "1001"
+    entrypoint:
+      - "/opt/app-root/src/wait-for-plugins-and-start.sh"
+    ports: # dclint disable-line no-unbound-port-interfaces
+      - "7007:7007"
+      - "127.0.0.1:9229:9229"
+    environment:
+      NODE_OPTIONS: "--inspect=0.0.0.0:9229 --no-node-snapshot"
+    volumes:
+      - ./mkdocs.yaml:/opt/app-root/src/mkdocs.yaml:Z
+      - ./docs:/opt/app-root/src/docs:Z
+      - ./catalog-info.yaml:/opt/app-root/src/catalog-info.yaml:Z
+      - ./wait-for-plugins-and-start.sh:/opt/app-root/src/wait-for-plugins-and-start.sh:Z
+      - ./configs:/opt/app-root/src/configs:z
+      - dynamic-plugins-root:/opt/app-root/src/dynamic-plugins-root
+      - extensions-catalog:/extensions
+    depends_on:
+      install-dynamic-plugins:
+        condition: service_completed_successfully
+      # db:
+      #   condition: service_healthy
+
+  install-dynamic-plugins:
+    container_name: rhdh-plugins-installer
+    image: ${RHDH_IMAGE:-quay.io/rhdh-community/rhdh:1.9}
+    # docker compose volumes are owned by root, so we need to run as root to write to them
+    # the main rhdh container will be able to read from this as files are world readable
+    user: "root"
+    entrypoint:
+      - ./prepare-and-install-dynamic-plugins.sh
+    env_file:
+      - path: "./default.env"
+        required: true
+      - path: "./.env"
+        required: false
+    volumes:
+      - ./prepare-and-install-dynamic-plugins.sh:/opt/app-root/src/prepare-and-install-dynamic-plugins.sh:Z
+      - ./local-plugins:/opt/app-root/src/local-plugins:Z
+      - ./configs:/opt/app-root/src/configs:z
+      - dynamic-plugins-root:/dynamic-plugins-root
+      - extensions-catalog:${CATALOG_ENTITIES_EXTRACT_DIR:-/extensions}
+
+volumes:
+  dynamic-plugins-root:
+  extensions-catalog:

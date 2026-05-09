@@ -1,0 +1,57 @@
+# This Compose file is not usable on its own.
+# It needs to be used alongside the default compose.yaml file,
+# since it overrides the containers defined in the latter
+# and injects a new proxy container and adds a new network.
+#
+# You can run `[podman|docker]-compose -f compose.yaml -f compose-with-corporate-proxy.yaml config`
+# to view the effective merged config.
+
+networks:
+  internal_net:
+    # Network with no outside access
+    internal: true
+  default: {}
+
+services:
+  proxy:
+    container_name: proxy
+    # https://catalog.redhat.com/software/containers/registry/registry.access.redhat.com/repository/rhel9/squid
+    image: "${CORPORATE_PROXY_IMAGE:-registry.redhat.io/rhel9/squid:latest}"
+    environment:
+      - TS=UTC
+    networks:
+      - internal_net
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/3128'"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  rhdh:
+    environment:
+      - HTTP_PROXY=http://proxy:3128
+      - HTTPS_PROXY=http://proxy:3128
+      # NO_PROXY configured in the .env file, but can be overridden here
+    networks:
+      - internal_net
+      # TODO(rm3l): There is a limitation with networks that have "internal: true": ports are not published with Docker, but are with Podman.
+      # With Docker, port forwarding does not work at all from the host, because the host port is not exposed.
+      # See https://github.com/moby/moby/issues/36174
+      # As a workaround, we are adding it to the default network,
+      # but note that there is as such nothing preventing requests from bypassing the proxy to reach the outside.
+      - default
+    depends_on:
+      proxy:
+        condition: service_healthy
+
+  install-dynamic-plugins:
+    environment:
+      - HTTP_PROXY=http://proxy:3128
+      - HTTPS_PROXY=http://proxy:3128
+      # NO_PROXY configured in the .env file, but can be overridden here
+    networks:
+      - internal_net
+    depends_on:
+      proxy:
+        condition: service_healthy

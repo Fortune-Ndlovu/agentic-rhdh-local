@@ -1,0 +1,242 @@
+# This is the default rhdh-local config, and any user configuration should be added app-config.local.yaml instead
+auth:
+  environment: development
+  providers:
+    guest:
+      dangerouslyAllowOutsideDevelopment: true
+    # github:
+    #   development:
+    #     clientId: ${AUTH_GITHUB_CLIENT_ID}
+    #     clientSecret: ${AUTH_GITHUB_CLIENT_SECRET}
+
+# integrations:
+#   github:
+#     - host: github.com
+#       apps:
+#         - $include: ../extra-files/github-app-credentials.yaml
+
+app:
+  title: Red Hat Developer Hub
+  baseUrl: ${BASE_URL}
+  branding:
+    # If using a different logo, replace these lines with your own image(s)
+    # fullLogo: data:image/svg+xml;base64,your-image-goes-here==
+    # - or -
+    # fullLogo: 
+    #   dark: data:image/svg+xml;base64,your-image-in-dark-mode-goes-here==
+    #   light: data:image/svg+xml;base64,your-image-in-light-mode-goes-here==
+    # iconLogo: data:image/svg+xml;base64,your-image-goes-here==
+    fullLogoWidth: ${FULL_LOGO_WIDTH}
+    theme:
+      light:
+        primaryColor: ${PRIMARY_LIGHT_COLOR}
+        headerColor1: ${HEADER_LIGHT_COLOR_1}
+        headerColor2: ${HEADER_LIGHT_COLOR_2}
+        navigationIndicatorColor: ${NAV_INDICATOR_LIGHT_COLOR}
+      dark:
+        primaryColor: ${PRIMARY_DARK_COLOR}
+        headerColor1: ${HEADER_DARK_COLOR_1}
+        headerColor2: ${HEADER_DARK_COLOR_2}
+        navigationIndicatorColor: ${NAV_INDICATOR_DARK_COLOR}
+  quickstart:
+    # Quickstarts for all users (both new admins and new developers)
+    - title: 'What is Developer Hub?'
+      description: 'Learn what Developer Hub is, its purpose, and how to use it to discover, create, and manage software in your organization.'
+      icon: 'developerHub'
+      roles: ['admin', 'developer'] # Show to all users
+      cta:
+        text: 'Read the Introduction'
+        link: '/docs/default/system/rhdh-local/intro/rhdh/' # Link points to a very custom location that only exists by default in RHDH Local
+    - title: 'Navigate Your Way Around'
+      description: 'The homepage gives links to important features and documentation. The topbar allows you to to search for anything, register new components, view your starred entities, and launch external apps.'
+      icon: 'kind:location'
+      roles: ['admin', 'developer']
+      cta:
+        text: 'Start Exploring'
+        link: '/'
+    - title: 'Browse The Software Catalog'
+      description: 'The software catalog lets you see all the projects and components shared by development teams throughout your organization.'
+      icon: 'catalog'
+      roles: ['admin', 'developer'] # Show to both roles
+      cta:
+        text: 'Open the Catalog'
+        link: '/catalog'
+    - title: 'Browse The ''Golden Path'' Templates'
+      description: 'Golden path templates let you quickly create and customize software projects that follow your organization''s coding standards using simple wizard like forms. You can even develop and share templates of your own!'
+      icon: 'scaffolder'
+      roles: ['admin', 'developer'] # Show to both roles
+      cta:
+        text: 'Browse the Templates'
+        link: '/create'
+    - title: 'Read Some TechDocs'
+      description: 'Discover project documentation, architecture notes, and how-to guides in TechDocs.'
+      icon: 'techdocs'
+      roles: ['admin', 'developer']
+      cta:
+        text: 'View the TechDocs'
+        link: '/docs'
+    - title: 'Explore APIs'
+      description: 'Visit the APIs section to discover the APIs that have been added by our organization.'
+      icon: 'kind:api'
+      roles: ['admin', 'developer'] # Show to both roles
+      cta:
+        text: 'View the APIs'
+        link: '/api-docs'
+    - title: 'Add Software To The Catalog'
+      description: 'You can register existing Backstage components into the catalog using catalog-info.yaml files. Alternatively, you could use our Bulk Import tool to register multiple components at once.'
+      icon: 'add'
+      roles: ['admin', 'developer'] # Show to both roles
+      cta:
+        text: 'Register a Component'
+        link: '/catalog-import'
+    - title: 'Personalize Your Experience'
+      description: 'Customize Developer Hub to match your preferences. Toggle dark mode, adjust your theme, and configure settings to create your ideal workspace.'
+      icon: 'manageAccounts'
+      roles: ['admin', 'developer'] # Show to all users
+      cta:
+        text: 'Open Settings'
+        link: '/settings'
+    - title: 'Learn New Skills'
+      description: 'Discover curated learning paths designed to help you expand your knowledge and skills in various technologies.'
+      icon: 'school'
+      roles: ['admin', 'developer'] # Show to both roles
+      cta:
+        text: 'View Learning Paths'
+        link: '/learning-paths'
+    - title: 'Star Your Favorite Items'
+      description: 'Click the Star icon on any Catalog entity, API, or anywhere else you see a star. Your starred items appear in the top navigation bar for quick access. Try it now by adding the RHDH Local System to your starred items list.'
+      icon: 'star'
+      roles: ['admin', 'developer']
+      cta:
+        text: 'Learn More'
+        link: '/catalog/default/system/rhdh-local'
+
+    # Quickstarts just for admins
+    - title: 'View Your Platform Adoption Metrics'
+      description: 'See how your developers are using Developer Hub''s many tools and features.'
+      icon: 'chart'
+      roles: ['admin']
+      cta:
+        text: 'Open Adoption Insights'
+        link: '/adoption-insights'
+    - title: 'Manage and Install Plugins'
+      description: 'Browse the Extensions Catalog to discover, install, and manage plugins that extend Developer Hub''s functionality.'
+      icon: 'storefront'
+      roles: ['admin'] # Show only to admins
+      cta:
+        text: 'Open Extensions Catalog'
+        link: '/extensions/catalog'
+
+        
+backend:
+  listen:
+    port: 7007
+  baseUrl: ${BASE_URL}
+  # uncomment this if backend.baseUrl is exposed over HTTPS
+  # and you want RHDH to auto-generate and serve a self-signed certificate.
+  # https: true
+  cors:
+    origin: ${BASE_URL}
+    methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
+    credentials: true
+  csp:
+   upgrade-insecure-requests: false
+   # CSP for Quay Images
+   img-src:
+    - "'self'"
+    - "data:"
+    - "https://quay.io"
+    - "https://*.quay.io"
+# comment out the following 'database' section to use the PostgreSQL database
+  database:
+    client: better-sqlite3
+    connection: ':memory:'
+
+  auth:
+    keys:
+      - secret: "development"
+
+# You can use local files from catalog-entities directory to load entities into the catalog
+catalog:
+  # Processing interval for catalog refresh rates - 30 seconds - uncomment to use
+  # processingInterval: { seconds: 30 }
+
+  rules:
+    - allow: [Component, API, Location, Template, Domain, User, Group, System, Resource]
+
+  locations:
+    - type: file
+      target: /opt/app-root/src/catalog-info.yaml
+    - type: file
+      target: /opt/app-root/src/configs/catalog-entities/users.yaml
+      rules:
+        - allow: [User, Group]
+    - type: file
+      target: /opt/app-root/src/configs/catalog-entities/components.override.yaml
+    # Load Frontend Dynamic Plugin Software Template.
+    # Using this template in RHDH requires GitHub integration to be set up.
+    - type: url
+      target: https://github.com/redhat-developer/red-hat-developer-hub-software-templates/blob/main/templates/create-frontend-plugin/template.yaml
+      rules:
+        - allow: [Template]
+    # Load Backend Dynamic Plugin Software Template.
+    # Using this template in RHDH requires GitHub integration to be set up.
+    - type: url
+      target: https://github.com/redhat-developer/red-hat-developer-hub-software-templates/blob/main/templates/create-backend-plugin/template.yaml
+      rules:
+        - allow: [Template]
+    # Load 'Create Tech Docs' Software Template
+    # Using this template in RHDH requires GitHub integration to be set up.
+    - type: url
+      target: https://github.com/redhat-developer/red-hat-developer-hub-software-templates/blob/main/templates/github/techdocs/template.yaml
+      rules:
+        - allow: [Template]
+    # Load 'Register Existing Component to Catalog' Software Template.
+    # Using this template in RHDH requires GitHub integration to be set up.
+    - type: url
+      target: https://github.com/redhat-developer/red-hat-developer-hub-software-templates/blob/main/templates/github/register-component/template.yaml
+      rules:
+        - allow: [Template]
+    # - type: url
+    #   target: https://github.com/backstage/backstage/blob/master/packages/catalog-model/examples/all.yaml
+    #   rules:
+    #     - allow: [Component, User, Group, Domain]
+
+techdocs:
+  generator:
+    runIn: local
+  builder: local
+  publisher:
+    type: local
+    local:
+      publishDirectory: /tmp/techdocs
+
+dynamicPlugins:
+  frontend:
+    default.main-menu-items:
+        menuItems:
+          default.help:
+            title: RHDH Guide
+            icon: techdocs
+            priority: 5
+            to: /catalog/default/system/rhdh-local/docs
+            enabled: true
+
+proxy:
+  endpoints:
+    '/quay/api':
+      target: 'https://quay.io'
+      credentials: require
+      headers:
+        X-Requested-With: 'XMLHttpRequest'
+        # Uncomment and use the Authorization header below to access a private Quay
+        # Repository using a token. Refer to the "Applications and Tokens" section
+        # at https://docs.quay.io/api/ to find the instructions to generate a token
+        # Authorization: 'Bearer <YOUR TOKEN>'
+      changeOrigin: true
+      # Change to "false" in case of using self hosted quay instance with a self-signed certificate
+      secure: true
+
+quay:
+  # The UI url for Quay, used to generate the link to Quay
+  uiUrl: 'https://quay.io'

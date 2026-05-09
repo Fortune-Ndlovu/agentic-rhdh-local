@@ -1,0 +1,39 @@
+.env
+configs/github-app-credentials.yaml
+configs/.npmrc
+/tmp
+dynamic-plugins-root
+
+# User-specific local configuration files
+*.local.yaml
+*-credentials.yaml
+/configs/dynamic-plugins/dynamic-plugins.override.yaml*
+compose.override.yaml*
+
+# Local shell scripts in the root folder
+*.local.sh 
+
+# Catalog-Entities
+/configs/catalog-entities/users.override.yaml
+/configs/catalog-entities/components.override.yaml
+
+# Extra-files
+/configs/extra-files/*
+!/configs/extra-files/github-app-credentials.example.yaml
+/developer-lightspeed/configs/extra-files/*
+!/developer-lightspeed/configs/extra-files/lightspeed-stack.yaml
+!/developer-lightspeed/configs/extra-files/config.yaml
+!/developer-lightspeed/configs/extra-files/rhdh-profile.py
+!/developer-lightspeed/configs/extra-files/templates
+
+
+# Kept for backward compatibility, but now Git-ignored
+/configs/app-config.local.yaml
+/configs/dynamic-plugins.yaml
+/configs/github-app-credentials.example.yaml
+
+# Generated during local development
+generated/
+
+**/.DS_Store
+.idea

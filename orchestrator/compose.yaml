@@ -1,0 +1,34 @@
+# This compose file is not usable on its own.
+# It needs to be used alongside the default compose.yaml file,
+# since it overrides the containers defined in the latter
+# and spins up Sonataflow container for running workflows.
+#
+# You can run `[podman|docker] compose -f compose.yaml -f orchestrator/compose.yaml config`
+# to view the effective merged config.
+
+
+services:
+  install-dynamic-plugins:
+    volumes:
+      # Appended to the volumes of the 'install-dynamic-plugins' service defined in the main compose.yaml file
+      - ./orchestrator/configs:/opt/app-root/src/orchestrator/configs:Z
+
+  sonataflow:
+    container_name: sonataflow
+    image: "${SONATAFLOW_IMAGE:-quay.io/kubesmarts/incubator-kie-sonataflow-devmode:main}"
+    env_file:
+      - path: "./default.env"
+        required: true
+      - path: "./.env"
+        required: false
+    environment:
+      QUARKUS_HTTP_PORT: "8899"
+      KOGITO_SERVICE_URL: http://sonataflow:8899
+      KOGITO.CODEGEN.PROCESS.FAILONERROR: "false"
+      QUARKUS_EMBEDDED_POSTGRESQL_DATA_DIR: /home/kogito/persistence
+      NOTIFICATIONS_BEARER_TOKEN: "${RHDH_ORCHESTRATOR_NOTIFICATIONS_BEARER_TOKEN:-}"
+      BACKSTAGE_NOTIFICATIONS_URL: http://host.docker.internal:7008
+    ports:
+      - "127.0.0.1:8899:8899"
+    volumes:
+      - ${RHDH_ORCHESTRATOR_WORKFLOWS:-./orchestrator/workflow-examples}:/home/kogito/serverless-workflow-project/src/main/resources:Z
