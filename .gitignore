@@ -37,3 +37,12 @@ generated/
 
 **/.DS_Store
 .idea
+
+# Agentic CLI (Python)
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+extracted-catalog/

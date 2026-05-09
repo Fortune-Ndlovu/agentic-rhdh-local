@@ -1,0 +1,82 @@
+"""Docker/Podman compose operations for RHDH container management."""
+
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+
+def detect_compose_command(project_root: Path | None = None) -> list[str]:
+    """Detect whether to use 'podman compose' or 'docker compose'."""
+    for cmd in (["podman", "compose"], ["docker", "compose"], ["docker-compose"]):
+        try:
+            subprocess.run([*cmd, "version"], capture_output=True, check=True)
+            return cmd
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            continue
+    raise RuntimeError("No compose command found. Install podman-compose or docker-compose.")
+
+
+def compose_run(
+    command: str,
+    project_root: Path | None = None,
+    *,
+    service: str | None = None,
+    timeout: int = 120,
+) -> subprocess.CompletedProcess[str]:
+    """Run a compose command (up, down, restart, logs, etc.)."""
+    compose = detect_compose_command(project_root)
+    args = [*compose, command]
+    if service:
+        args.append(service)
+
+    kwargs: dict = dict(
+        capture_output=True, text=True, timeout=timeout,
+    )
+    if project_root:
+        kwargs["cwd"] = str(project_root)
+
+    return subprocess.run(args, **kwargs)
+
+
+def restart_rhdh(project_root: Path) -> tuple[bool, str]:
+    """Restart the RHDH container. Returns (success, output)."""
+    result = compose_run("restart", project_root, service="rhdh", timeout=60)
+    success = result.returncode == 0
+    output = result.stdout + result.stderr
+    return success, output
+
+
+def run_install_plugins(project_root: Path) -> tuple[bool, str]:
+    """Run the install-dynamic-plugins init container."""
+    compose_run("stop", project_root, service="install-dynamic-plugins")
+    result = compose_run("up", project_root, service="install-dynamic-plugins", timeout=180)
+    success = result.returncode == 0
+    output = result.stdout + result.stderr
+    return success, output
+
+
+def get_container_logs(
+    project_root: Path,
+    service: str = "rhdh",
+    lines: int = 100,
+) -> str:
+    """Get recent container logs."""
+    compose = detect_compose_command(project_root)
+    result = subprocess.run(
+        [*compose, "logs", "--tail", str(lines), service],
+        capture_output=True, text=True, timeout=30,
+        cwd=str(project_root),
+    )
+    return result.stdout + result.stderr
+
+
+def is_running(project_root: Path, service: str = "rhdh") -> bool:
+    """Check if a compose service is running."""
+    compose = detect_compose_command(project_root)
+    result = subprocess.run(
+        [*compose, "ps", "--status=running", service],
+        capture_output=True, text=True, timeout=15,
+        cwd=str(project_root),
+    )
+    return service in result.stdout

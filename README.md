@@ -81,6 +81,25 @@ If you would like to change your RHDH-Local setup, or add additional features or
 5. [Orchestrator Workflow Guide](./orchestrator/README.md) - using Orchestrator with RHDH to develop workflows.
 6. [Developer Lightspeed Guide](./developer-lightspeed/README.md) - using Developer Lightspeed in RHDH Local.
 
+## Agentic Onboarding CLI
+
+Automatically onboard your repositories into RHDH — the system scans your repos, proposes plugins and catalog entities, and applies the configuration for you.
+
+```sh
+pip install -e .
+agentic-rhdh
+```
+
+**How it works:**
+1. Add your GitHub repo URLs
+2. A multi-agent system (powered by Anthropic Managed Agents) scans each repo in parallel
+3. Agents detect technologies (GitHub Actions, Kubernetes, Tekton, ArgoCD, etc.) and recommend matching RHDH plugins
+4. Catalog entities are generated automatically for each repo
+5. Review and approve the proposals
+6. The system writes all configuration, installs plugins, and verifies RHDH health
+
+**Requirements:** Python 3.11+, `ANTHROPIC_API_KEY` environment variable set, and a GitHub token (via `gh auth login` or `GITHUB_TOKEN` env var).
+
 ## Contributing and reporting issues
 
 To report issues against this repository, please use [JIRA](https://issues.redhat.com/browse/RHIDP) with Component: **RHDH Local**
