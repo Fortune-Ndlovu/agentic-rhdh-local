@@ -129,17 +129,7 @@ class CatalogEntityProposal(BaseModel):
         }
 
 
-# --- Agent state ---
-
-
-class AgentIDs(BaseModel):
-    """Stored agent IDs for reuse across sessions."""
-
-    scanner: str = ""
-    recommender: str = ""
-    entity_generator: str = ""
-    config_writer: str = ""
-    coordinator: str = ""
+# --- Session state ---
 
 
 class OnboardingState(BaseModel):

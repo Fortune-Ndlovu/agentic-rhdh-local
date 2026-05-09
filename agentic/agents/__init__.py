@@ -1,12 +1,12 @@
-"""Agent definitions, setup, and session management."""
+"""Agent orchestration — client factory, tool-use loop, prompts."""
 
-from .session import SessionContext, create_session, run_session_loop, send_user_message
-from .setup import create_agents
+from .client import create_client
+from .session import dispatch_tool, run_agent_loop
+from .tools import ALL_TOOLS
 
 __all__ = [
-    "SessionContext",
-    "create_agents",
-    "create_session",
-    "run_session_loop",
-    "send_user_message",
+    "ALL_TOOLS",
+    "create_client",
+    "dispatch_tool",
+    "run_agent_loop",
 ]

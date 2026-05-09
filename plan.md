@@ -4,11 +4,13 @@
 
 RHDH onboarding is painful: users must manually discover plugins, write pluginConfig YAML, create catalog entities, and configure app-config — all before seeing value. This system flips the model: users provide their repo URLs and the system automatically proposes the right plugins, catalog entities, and configuration. A multi-agent architecture handles scanning, recommendation, and config writing, with resilience built into every step.
 
-This is a proof-of-concept built on [RHDH Local](https://github.com/redhat-developer/rhdh-local) and the [Anthropic Managed Agents SDK](https://docs.anthropic.com/en/docs/agents-and-tools/managed-agents).
+This is a proof-of-concept built on [RHDH Local](https://github.com/redhat-developer/rhdh-local) and the [Anthropic Claude API via Google Vertex AI](https://cloud.google.com/vertex-ai/generative-ai/docs/partner-models/use-claude).
 
 ---
 
 ## Architecture
+
+A single unified agent with 4 specialist capabilities, driven by a tool-use loop:
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -17,32 +19,51 @@ This is a proof-of-concept built on [RHDH Local](https://github.com/redhat-devel
 └────────────────────────┬────────────────────────────┘
                          │
 ┌────────────────────────▼────────────────────────────┐
-│      Coordinator Agent (Anthropic Managed Agent)     │
-│   Orchestrates specialists, collects proposals,      │
-│   presents unified approval, drives apply phase      │
-└──┬──────────┬──────────┬──────────┬─────────────────┘
-   │          │          │          │
-   ▼          ▼          ▼          ▼
-┌────────┐ ┌──────────┐ ┌────────┐ ┌──────────┐
-│  Repo  │ │ Plugin   │ │Catalog │ │ Config   │
-│Scanner │ │Recommender│ │ Entity │ │ Writer   │
-│ Agent  │ │  Agent   │ │ Agent  │ │ Agent    │
-└────────┘ └──────────┘ └────────┘ └──────────┘
+│          Unified RHDH Onboarding Agent               │
+│   Claude via Messages API + tool-use loop            │
+│                                                      │
+│   Capabilities:                                      │
+│   ├── Repo Scanner — scan_repo_tree, read_repo_file │
+│   ├── Plugin Recommender — knowledge base context    │
+│   ├── Entity Generator — type inference rules        │
+│   └── Config Writer — write_yaml, restart, health    │
+└────────────────────────┬────────────────────────────┘
+                         │
+              ┌──────────▼──────────┐
+              │  Local Tool Dispatch │
+              │  (Python handlers)   │
+              └─────────────────────┘
 ```
 
-### Agent Runtime: Anthropic Managed Agents SDK
+### Agent Runtime: Messages API with Tool-Use Loops
 
-**Why Managed Agents over raw API calls:**
-- Agents are server-side objects with persistent identity — create once, reuse across sessions
-- Coordinator pattern handles agent-to-agent handoffs natively
-- Each agent runs in its own session thread with isolated conversation history
-- Built-in `agent_toolset_20260401` provides bash, file ops, web search out of the box
-- Custom tools for domain-specific operations (YAML writes, health checks)
-- Streaming events for real-time CLI progress updates
-- Session persistence (30 days) — can resume interrupted onboarding
+**Why Messages API over Managed Agents SDK:**
+- Works with Google Vertex AI (Red Hat's Claude access is via Vertex, not direct Anthropic API)
+- The `anthropic` Python SDK supports both backends identically via `AnthropicVertex`
+- Each "agent" is a system prompt + tool set — no server-side state to manage
+- Tool-use loop in Python gives explicit control over orchestration and resilience
+- Simpler debugging: you can see every message and tool call
+- No dependency on beta APIs that could change
 
-**SDK:** `anthropic` Python SDK with `client.beta.agents`
-**Model:** `claude-sonnet-4-6` (fast, capable, cost-effective for tool-heavy agents)
+**Client:** `AnthropicVertex(region, project_id)` auto-detected from env vars, falls back to `Anthropic()` if `ANTHROPIC_API_KEY` is set
+**Model:** `claude-sonnet-4-6`
+
+### How the Tool-Use Loop Works
+
+```
+User message → client.messages.create(system, tools, messages)
+                         │
+                         ▼
+                  stop_reason?
+                  ├── "end_turn" → done, extract text response
+                  └── "tool_use" → for each tool_use block:
+                                     dispatch locally (GitHub API, YAML write, etc.)
+                                     collect tool_results
+                                     append to messages
+                                     loop back to messages.create()
+```
+
+The agent calls tools as needed — scanning repos, reading files, writing configs — and the Python loop handles execution. Max 25 turns per phase to prevent runaway loops.
 
 ---
 
@@ -51,12 +72,13 @@ This is a proof-of-concept built on [RHDH Local](https://github.com/redhat-devel
 | Component | Technology | Why |
 |-----------|-----------|-----|
 | Language | Python 3.11+ | Clean SDK support, strong YAML/JSON tooling, fast iteration |
-| Agent Runtime | Anthropic Managed Agents SDK | Server-side agents, coordinator pattern, streaming, persistence |
-| Model | `claude-sonnet-4-6` | Fast output, strong tool use, cost-effective for multi-agent |
+| AI Backend | Google Vertex AI (Claude) | Red Hat's provisioned access to Claude models |
+| SDK | `anthropic` with `AnthropicVertex` | Same Messages API for both Vertex and direct Anthropic |
+| Model | `claude-sonnet-4-6` | Fast output, strong tool use, cost-effective |
 | CLI Framework | Rich + Typer | Interactive TUI with tables, progress, prompts |
 | Data Models | Pydantic v2 | Typed, validated, serializable |
 | Plugin Data | Extracted catalog index (JSON/YAML) | Authoritative, version-matched, no vector DB |
-| HTTP Client | httpx | Modern Python HTTP with async support |
+| HTTP Client | httpx | Modern Python HTTP |
 | Container Runtime | Podman/Docker (auto-detected) | For RHDH health checks and restarts |
 | GitHub Auth | `gh` CLI fallback to `GITHUB_TOKEN` | Zero config for most users |
 
@@ -84,12 +106,12 @@ agentic-rhdh-local/
 │   ├── __init__.py                 # Package init + version
 │   ├── __main__.py                 # CLI entry point (Typer app)
 │   ├── models.py                   # Pydantic data models
-│   ├── agents/                     # Agent definitions & orchestration
+│   ├── agents/                     # Agent orchestration
 │   │   ├── __init__.py
-│   │   ├── prompts.py              # System prompts for all 5 agents
-│   │   ├── tools.py                # Custom tool JSON Schema definitions
-│   │   ├── setup.py                # Agent creation via Managed Agents API
-│   │   └── session.py              # Session lifecycle, event streaming, tool dispatch
+│   │   ├── client.py               # Client factory (Vertex AI / direct Anthropic)
+│   │   ├── prompts.py              # System prompts (specialist + unified)
+│   │   ├── tools.py                # Tool definitions (Messages API format)
+│   │   └── session.py              # Tool-use loop + local tool dispatch
 │   ├── knowledge/                  # Plugin knowledge base
 │   │   ├── __init__.py
 │   │   ├── extractor.py            # Extracts catalog index image (podman/docker)
@@ -120,18 +142,15 @@ agentic-rhdh-local/
 └── ...                             # RHDH Local base files (scripts, docs, etc.)
 ```
 
-**19 Python source files, ~2,150 lines of code.**
-
 ---
 
-## Agent Details
+## Agent Capabilities
 
-### 1. Repo Scanner Agent
+The unified agent has all 4 specialist capabilities built into one system prompt:
 
-**Input:** List of GitHub repo URLs
-**Output:** `RepoProfile` per repo (structured JSON)
+### Repo Scanner
 
-**Signals detected (16 patterns):**
+Scans GitHub repos via custom tools, detects 16 technology signals:
 
 | Signal | File Patterns | Plugin |
 |--------|--------------|--------|
@@ -152,54 +171,25 @@ agentic-rhdh-local/
 | Ansible | `ansible/`, `playbooks/`, `roles/` | ansible-plugin |
 | 3scale | `3scale` references | 3scale |
 
-**Custom tools:**
-- `scan_repo_tree(owner, repo)` — Full file tree via GitHub API
-- `read_repo_file(owner, repo, path)` — Read specific file content
-- `get_repo_languages(owner, repo)` — Language breakdown
-- `get_repo_info(owner, repo)` — Default branch, description, topics
+**Tools:** `scan_repo_tree`, `read_repo_file`, `get_repo_languages`, `get_repo_info`
 
-### 2. Plugin Recommender Agent
+### Plugin Recommender
 
-**Input:** `RepoProfile[]` + plugin knowledge base (injected into system prompt)
-**Output:** `PluginProposal[]`
+Maps detected signals to RHDH plugins using the knowledge base (injected into system prompt). Resolves frontend+backend package pairs, pulls complete pluginConfig, identifies required env vars, checks for conflicts.
 
-**Logic:**
-1. For each detected signal, look up matching plugins in the knowledge base
-2. Resolve plugin pairs (frontend + backend packages)
-3. Pull complete `pluginConfig` from `dynamic-plugins.default.yaml`
-4. Identify required env vars (`${VAR_NAME}` in config)
-5. Check for conflicts (e.g., don't enable both roadie-argocd and redhat-argocd)
-6. Rank by confidence
+**Tools:** None (uses knowledge base context in system prompt)
 
-### 3. Catalog Entity Generator Agent
+### Catalog Entity Generator
 
-**Input:** `RepoProfile[]` from scanner
-**Output:** `CatalogEntityProposal[]`
+Creates Backstage Component entities with inferred type, lifecycle, and annotations.
 
-**Type inference rules:**
-- `Dockerfile` + backend language → `service`
-- `package.json` with React/Angular/Vue → `website`
-- Library code only → `library`
-- Helm charts, Terraform, infra → `resource`
+**Tools:** None (generative from scan results)
 
-**Annotations added:**
-- `github.com/project-slug` (always)
-- `backstage.io/techdocs-ref` (if TechDocs detected)
-- `backstage.io/kubernetes-id` (if Kubernetes detected)
+### Config Writer (with Resilience)
 
-### 4. Config Writer Agent (with Resilience)
+Writes override YAML files, restarts RHDH, verifies health, diagnoses errors, retries.
 
-**Files it modifies (override only):**
-- `configs/dynamic-plugins/dynamic-plugins.override.yaml` — enables plugins with pluginConfig
-- `configs/catalog-entities/components.override.yaml` — adds component entities
-- `configs/app-config/app-config.local.yaml` — adds catalog locations
-
-**Custom tools:**
-- `write_yaml(path, content)` — Atomic write with backup + validation
-- `restart_rhdh()` — Compose restart
-- `check_rhdh_health(wait, max_wait)` — HTTP health check with polling
-- `diagnose_plugin_errors(lines)` — Parse container logs for errors
-- `read_container_logs(service, lines)` — Raw log access
+**Tools:** `write_yaml`, `restart_rhdh`, `check_rhdh_health`, `diagnose_plugin_errors`, `read_container_logs`
 
 **Resilience loop:**
 ```
@@ -214,15 +204,6 @@ Write config → Restart RHDH → Health check → Check logs
                 └── Max retries (3) → disable plugin, report
 ```
 
-### 5. Coordinator Agent
-
-Orchestrates the full pipeline:
-1. **Scan Phase** — Send repos to Scanner (parallel per repo)
-2. **Analysis Phase** — Send profiles to Recommender + Entity Generator (parallel)
-3. **Proposal Phase** — Collect and return proposals to user
-4. **Apply Phase** — After approval, send to Config Writer
-5. **Verify** — Ensure Config Writer reports success or specific failures
-
 ---
 
 ## CLI Flow
@@ -233,13 +214,18 @@ agentic-rhdh
   ├── Show banner
   ├── Collect repo URLs (interactive prompt, validated)
   ├── Extract catalog index image → build PluginKnowledgeBase (84 plugins)
-  ├── Create Managed Agents (idempotent, cached in ~/.cache/agentic-rhdh/)
-  ├── Create session → send repos to coordinator
-  ├── Stream events → show scan progress in real-time
-  ├── Parse agent responses → PluginProposal[] + CatalogEntityProposal[]
+  ├── Create Claude client (Vertex AI or direct Anthropic, auto-detected)
+  ├── Build unified system prompt with knowledge base context
+  ├── SCAN+PROPOSE PHASE: run_agent_loop() with repo URLs
+  │   └── Agent calls scan_repo_tree, read_repo_file, etc. via tool-use loop
+  │       Then recommends plugins + generates entities
+  │       Returns structured JSON proposals
+  ├── Parse agent response → PluginProposal[] + CatalogEntityProposal[]
   ├── Display proposals in Rich tables
   ├── Prompt: [a] Accept all  [e] Edit selections  [r] Reject all
-  ├── Send approved proposals to coordinator → Config Writer applies
+  ├── APPLY PHASE: run_agent_loop() with approved proposals
+  │   └── Agent calls write_yaml, restart_rhdh, check_rhdh_health
+  │       Follows resilience loop for error recovery
   └── Show completion: plugins enabled, entities added, required env vars
 ```
 
@@ -252,7 +238,7 @@ agentic-rhdh
 - [x] Python project scaffold (`pyproject.toml`, package structure)
 - [x] Pydantic data models (`models.py`)
   - `RepoProfile`, `DetectedSignal`, `PluginProposal`, `CatalogEntityProposal`
-  - `PluginInfo`, `PluginPackage`, `AgentIDs`, `OnboardingState`
+  - `PluginInfo`, `PluginPackage`, `OnboardingState`
 - [x] Catalog index extractor (`knowledge/extractor.py`)
   - Pulls `quay.io/rhdh/plugin-catalog-index:1.9` via podman/docker
   - Extracts and parses `index.json`, `dynamic-plugins.default.yaml`, plugin/package YAMLs
@@ -264,21 +250,12 @@ agentic-rhdh
   - 16 technology patterns with file globs, content patterns, confidence levels
   - Maps each signal to plugin names, categories, required env vars
 
-### Phase 2: Agents — COMPLETE ✓
+### Phase 2: Agents — COMPLETE ✓ (originally Managed Agents, now refactoring)
 
-- [x] System prompts for all 5 agents (`agents/prompts.py`)
+- [x] System prompts for specialist roles (`agents/prompts.py`)
   - Scanner, Recommender, Entity Generator, Config Writer, Coordinator
 - [x] Custom tool JSON Schema definitions (`agents/tools.py`)
   - 9 custom tools: scan_repo_tree, read_repo_file, get_repo_languages, get_repo_info, write_yaml, restart_rhdh, check_rhdh_health, diagnose_plugin_errors, read_container_logs
-- [x] Agent creation via Managed Agents API (`agents/setup.py`)
-  - Creates 4 specialists + 1 coordinator with `multiagent.type = "coordinator"`
-  - Idempotent — caches agent IDs in `~/.cache/agentic-rhdh/agent_ids.json`
-  - Validates cached agents still exist before reuse
-- [x] Session management (`agents/session.py`)
-  - Creates environment + session
-  - Sends user messages, streams events
-  - Dispatches custom tool calls to local handlers
-  - Collects agent messages for proposal parsing
 
 ### Phase 3: Tool Implementations — COMPLETE ✓
 
@@ -302,72 +279,60 @@ agentic-rhdh
 ### Phase 4: CLI UI — COMPLETE ✓
 
 - [x] Rich TUI (`ui/app.py`)
-  - `show_banner()` — styled double-border panel
-  - `collect_repos()` — interactive multi-URL input with validation
-  - `show_scan_progress()` — streaming event handler for real-time progress
-  - `show_plugin_proposals()` / `show_entity_proposals()` — Rich tables
-  - `prompt_review()` — accept all / edit / reject with toggle UI
-  - `show_apply_progress()` — step-by-step apply status
-  - `show_completion()` — final summary with required env vars
+  - `show_banner()`, `collect_repos()`, `show_plugin_proposals()`, `show_entity_proposals()`
+  - `prompt_review()`, `show_apply_progress()`, `show_completion()`
   - `parse_proposals_from_messages()` — extracts JSON from agent responses
 - [x] CLI entry point (`__main__.py`)
   - Typer app with `--project-dir` option
   - `agentic-rhdh` console script
 
+### Phase 4.5: Vertex AI Refactor — COMPLETE ✓
+
+The original implementation used Anthropic Managed Agents SDK (`client.beta.agents`), which requires a direct Anthropic API key. Red Hat provides Claude via Google Vertex AI, so we refactored to use the standard Messages API with tool-use loops.
+
+- [x] **Created `agents/client.py`** — Client factory that auto-detects Vertex AI (`CLAUDE_CODE_USE_VERTEX=1`) or direct Anthropic (`ANTHROPIC_API_KEY`)
+- [x] **Updated `agents/tools.py`** — Removed `"type": "custom"` (Messages API format), added `ALL_TOOLS` flat list
+- [x] **Added unified prompt to `agents/prompts.py`** — `UNIFIED_SYSTEM` combining all 4 specialist roles + workflow. `build_unified_system()` appends knowledge base context
+- [x] **Rewrote `agents/session.py`** — `run_agent_loop()` calls `client.messages.create()` in a loop, `dispatch_tool()` handles 9 tools locally. Removed SessionContext, create_session, send_user_message
+- [x] **Deleted `agents/setup.py`** — No more server-side agent creation or caching
+- [x] **Updated `models.py`** — Removed `AgentIDs`
+- [x] **Rewrote `ui/app.py`** — Uses `create_client()` + `run_agent_loop()`. Two-phase flow: scan+propose, then apply
+- [x] **Updated `agents/__init__.py`** — New exports: `create_client`, `run_agent_loop`, `ALL_TOOLS`
+
+**Verified:** `AnthropicVertex` client creates successfully with user's GCP credentials. All 9 tools, imports, and CLI entry point work.
+
 ### Phase 5: Resilience + Polish — TODO
 
-- [ ] **Integration testing with real repos**
-  - Test full pipeline against known GitHub repos
-  - Verify generated YAML is valid and matches expected plugins
-  - Test with repos that have multiple technology signals
-
-- [ ] **Error recovery testing**
-  - Deliberately misconfigure a plugin, verify agent detects and fixes
-  - Test missing env var scenario → agent adds placeholder
-  - Test OCI pull failure → agent tries alternative version
-  - Test max retries → agent disables plugin and reports clearly
-
-- [ ] **Edge cases**
-  - Empty repos, private repos, very large repos
-  - Repos with existing `catalog-info.yaml` (should import, not regenerate)
-  - Multiple repos with conflicting plugin versions
-  - No container runtime available (graceful error)
-
-- [ ] **Unit tests**
-  - Signal detection accuracy: known file trees → expected `DetectedSignal[]`
-  - Plugin knowledge base: verify all 84 plugins load with correct packages
-  - YAML writer: atomic write, backup creation, merge behavior
-  - GitHub URL parsing: various URL formats
-
-- [ ] **Polish**
-  - Update plan.md TypeScript references (this update)
-  - Improve proposal parsing robustness (handle partial JSON, nested responses)
-  - Add `--verbose` flag for debug output
-  - Add `--dry-run` flag to show proposals without applying
+- [ ] Integration testing with real repos
+- [ ] Error recovery testing (deliberate misconfigs)
+- [ ] Edge cases (empty repos, private repos, existing catalog-info.yaml)
+- [ ] Unit tests (signal detection, knowledge base, YAML writer, URL parsing)
+- [ ] Polish (--verbose flag, --dry-run flag, improved proposal parsing)
 
 ---
 
 ## Key Design Decisions
 
-1. **Anthropic Managed Agents** — Server-side agents with coordinator pattern. Production-grade, built-in tool execution, streaming events, session persistence. No custom orchestration code needed.
+1. **Messages API over Managed Agents** — Managed Agents is Anthropic-only. Messages API works identically on Vertex AI and direct Anthropic. Same model, same tools, same results — just a different client constructor.
 
-2. **No vector DB** — The plugin catalog is small (~84 plugins), structured, and version-matched. A JSON index with deterministic matching is more reliable than semantic search for config generation.
+2. **Unified agent over multi-agent** — One system prompt with all 4 capabilities is simpler than coordinating separate agents. The model handles role-switching internally. Tool-use loop gives Python-level control over orchestration.
 
-3. **Catalog index as source of truth** — `dynamic-plugins.default.yaml` already has every plugin's complete config. The agents don't guess or hallucinate config blocks — they use the exact config from the authoritative source.
+3. **No vector DB** — The plugin catalog is small (~84 plugins), structured, and version-matched. A JSON index with deterministic matching is more reliable than semantic search for config generation.
 
-4. **Override files only** — Agents never modify default configs. Everything goes through the established override system (`dynamic-plugins.override.yaml`, `app-config.local.yaml`, etc.).
+4. **Catalog index as source of truth** — `dynamic-plugins.default.yaml` already has every plugin's complete config. The agent doesn't guess or hallucinate config blocks — it uses the exact config from the authoritative source.
 
-5. **Custom tools execute locally** — Agent reasons about what to do; CLI executes it locally. This keeps sensitive operations (file writes, compose commands) under user's control while leveraging agent intelligence for decisions.
+5. **Override files only** — Agent never modifies default configs. Everything goes through the established override system (`dynamic-plugins.override.yaml`, `app-config.local.yaml`, etc.).
 
-6. **Batch + restart** — Enable all approved plugins at once, then restart RHDH once. Only fall back to per-plugin restarts if batch fails.
+6. **Custom tools execute locally** — Agent reasons about what to do; CLI executes it locally. This keeps sensitive operations (file writes, compose commands) under user control.
 
-7. **Python over TypeScript** — Cleaner Anthropic SDK support, less tooling friction (no tsc compilation issues), stronger YAML/JSON ecosystem, faster iteration for a POC.
+7. **Python over TypeScript** — Cleaner Anthropic SDK support, less tooling friction, stronger YAML/JSON ecosystem, faster iteration for a POC.
 
 ---
 
 ## Verification Plan
 
-1. **Unit tests**: Signal detection accuracy against known repo file trees
-2. **Integration test**: Full flow with a sample GitHub repo → verify generated override YAML is valid
-3. **E2E test**: Run the CLI, add a repo with known technologies, accept proposals, verify RHDH starts with plugins active at `localhost:7007`
-4. **Resilience test**: Deliberately misconfigure a plugin, verify the agent detects the error, fixes it, and retries
+1. **Imports clean**: `python3 -c "from agentic.agents import create_client, run_agent_loop"`
+2. **CLI runs**: `agentic-rhdh --help`
+3. **Integration test**: Full flow with a sample GitHub repo → verify generated override YAML is valid
+4. **E2E test**: Run the CLI, add a repo with known technologies, accept proposals, verify RHDH starts with plugins active at `localhost:7007`
+5. **Resilience test**: Deliberately misconfigure a plugin, verify the agent detects the error, fixes it, and retries

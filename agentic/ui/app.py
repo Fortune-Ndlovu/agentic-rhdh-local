@@ -4,20 +4,20 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 from pathlib import Path
 from typing import Any
 
-import anthropic
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
 from rich import box
 
-from ..agents.session import SessionContext, create_session, run_session_loop, send_user_message
-from ..agents.setup import create_agents
+from ..agents.client import create_client
+from ..agents.prompts import build_unified_system
+from ..agents.session import run_agent_loop
+from ..agents.tools import ALL_TOOLS
 from ..knowledge import PluginKnowledgeBase, extract_catalog_index
 from ..models import CatalogEntityProposal, OnboardingState, PluginProposal
 
@@ -63,23 +63,38 @@ def _validate_repo_url(url: str) -> bool:
     return bool(re.match(r"https?://github\.com/[\w.-]+/[\w.-]+/?$", url))
 
 
-def show_scan_progress(event_type: str, event_data: dict[str, Any]) -> None:
-    """Handle streaming events from the agent session for progress display."""
-    if event_type == "session.thread_created":
-        agent = event_data.get("agent_name", "Agent")
-        console.print(f"  [dim]├── {agent} started[/dim]")
-    elif event_type == "agent.message":
-        pass
-    elif event_type == "agent.tool_use":
-        tool = event_data.get("name", "")
-        if tool:
-            console.print(f"  [dim]│   Using {tool}...[/dim]")
-    elif event_type == "agent.custom_tool_use":
-        tool = event_data.get("name", "")
-        console.print(f"  [dim]│   Running {tool}...[/dim]")
-    elif event_type == "session.error":
-        error = event_data.get("error", {}).get("message", "Unknown error")
-        console.print(f"  [red]│   Error: {error}[/red]")
+def _on_event(event_type: str, event_data: dict[str, Any]) -> None:
+    """Handle events from the agent loop for progress display."""
+    if event_type == "tool_use":
+        tool = event_data.get("tool", "")
+        tool_input = event_data.get("input", {})
+        if tool == "scan_repo_tree":
+            console.print(f"  [dim]├── Scanning {tool_input.get('owner', '')}/{tool_input.get('repo', '')}...[/dim]")
+        elif tool == "read_repo_file":
+            console.print(f"  [dim]│   Reading {tool_input.get('path', '')}...[/dim]")
+        elif tool == "get_repo_languages":
+            console.print(f"  [dim]│   Checking languages...[/dim]")
+        elif tool == "write_yaml":
+            console.print(f"  [dim]├── Writing {tool_input.get('path', '')}...[/dim]")
+        elif tool == "restart_rhdh":
+            console.print(f"  [dim]├── Restarting RHDH...[/dim]")
+        elif tool == "check_rhdh_health":
+            console.print(f"  [dim]├── Checking health...[/dim]")
+        elif tool == "diagnose_plugin_errors":
+            console.print(f"  [dim]├── Diagnosing errors...[/dim]")
+    elif event_type == "tool_result":
+        tool = event_data.get("tool", "")
+        result = event_data.get("result", {})
+        if tool == "scan_repo_tree":
+            console.print(f"  [dim]│   Found {result.get('count', 0)} files[/dim]")
+        elif tool == "check_rhdh_health":
+            if result.get("healthy"):
+                console.print(f"  [green]├── Health check passed ✓[/green]")
+            else:
+                console.print(f"  [yellow]├── Health check: {result.get('message', 'unhealthy')}[/yellow]")
+        elif tool == "write_yaml":
+            if result.get("success"):
+                console.print(f"  [green]│   ✓[/green]")
 
 
 def show_plugin_proposals(proposals: list[PluginProposal]) -> None:
@@ -149,7 +164,6 @@ def prompt_review(
     if choice == "a":
         return plugin_proposals, entity_proposals
 
-    # Edit mode: let user toggle individual plugins
     console.print("\n[dim]Toggle plugins (enter numbers to toggle, 'done' to finish):[/dim]")
     while True:
         for i, p in enumerate(plugin_proposals, 1):
@@ -167,18 +181,6 @@ def prompt_review(
             continue
 
     return plugin_proposals, entity_proposals
-
-
-def show_apply_progress(phase: str, detail: str = "", success: bool | None = None) -> None:
-    """Show progress during config application."""
-    if success is True:
-        console.print(f"  [green]├── {phase}... ✓[/green]")
-    elif success is False:
-        console.print(f"  [red]├── {phase}... ✗[/red]")
-        if detail:
-            console.print(f"  [red]│   {detail}[/red]")
-    else:
-        console.print(f"  [dim]├── {phase}...[/dim]")
 
 
 def show_completion(
@@ -201,30 +203,32 @@ def show_completion(
             console.print(f"  [dim]- {var}[/dim]")
 
 
-def parse_proposals_from_messages(messages: list[dict[str, Any]]) -> tuple[list[PluginProposal], list[CatalogEntityProposal]]:
-    """Extract structured proposals from agent messages."""
+def parse_proposals_from_response(content: list[dict[str, Any]]) -> tuple[list[PluginProposal], list[CatalogEntityProposal]]:
+    """Extract structured proposals from agent response content blocks."""
     plugin_proposals: list[PluginProposal] = []
     entity_proposals: list[CatalogEntityProposal] = []
 
-    for msg in messages:
-        text = msg.get("text", "") or msg.get("content", "")
-        if isinstance(text, list):
-            text = " ".join(str(b.get("text", "")) if isinstance(b, dict) else str(b) for b in text)
+    for block in content:
+        if block.get("type") != "text":
+            continue
+        text = block.get("text", "")
 
         json_blocks = re.findall(r"```json\s*(.*?)\s*```", text, re.DOTALL)
         if not json_blocks:
             json_blocks = re.findall(r"(\[[\s\S]*?\])", text)
 
-        for block in json_blocks:
+        for jblock in json_blocks:
             try:
-                data = json.loads(block)
+                data = json.loads(jblock)
                 if not isinstance(data, list):
                     data = [data]
 
                 for item in data:
-                    if "plugin" in item and "packages" in item:
+                    if not isinstance(item, dict):
+                        continue
+                    if "plugin" in item and ("packages" in item or "plugin_config" in item):
                         plugin_proposals.append(PluginProposal(**item))
-                    elif "component_type" in item or "source_repo" in item:
+                    elif "component_type" in item or ("source_repo" in item and "name" in item):
                         entity_proposals.append(CatalogEntityProposal(**item))
             except (json.JSONDecodeError, Exception):
                 continue
@@ -257,50 +261,52 @@ def run_app(project_root: Path | None = None) -> None:
             console.print(f"[red]Failed to load knowledge base: {e}[/red]")
             return
 
-    # Step 3: Create agents
-    with console.status("[bold]Setting up AI agents..."):
-        try:
-            client = anthropic.Anthropic()
-            knowledge_context = kb.to_agent_context()
-            agent_ids = create_agents(client, knowledge_context)
-            console.print("[green]✓[/green] Agents ready (Scanner, Recommender, Entity Generator, Config Writer)")
-        except Exception as e:
-            console.print(f"[red]Failed to create agents: {e}[/red]")
-            return
-
-    # Step 4: Create session and scan
-    ctx = SessionContext(
-        client=client,
-        agent_ids=agent_ids,
-        project_root=project_root,
-        on_event=show_scan_progress,
-    )
-
-    console.print("\n[bold]Scanning repositories...[/bold]")
+    # Step 3: Create client
     try:
-        create_session(ctx)
-        repo_list = "\n".join(f"- {url}" for url in repos)
-        send_user_message(ctx, f"Scan these repositories and propose plugins and catalog entities:\n{repo_list}")
-        messages = run_session_loop(ctx)
+        client = create_client()
+        console.print("[green]✓[/green] Claude client ready")
     except Exception as e:
-        console.print(f"\n[red]Agent session failed: {e}[/red]")
+        console.print(f"[red]{e}[/red]")
         return
 
-    # Step 5: Parse and display proposals
-    plugin_proposals, entity_proposals = parse_proposals_from_messages(messages)
+    # Step 4: Build system prompt with knowledge context
+    knowledge_context = kb.to_agent_context()
+    system_prompt = build_unified_system(knowledge_context)
+
+    # Step 5: Scan + Propose
+    console.print("\n[bold]Scanning repositories...[/bold]")
+    repo_list = "\n".join(f"- {url}" for url in repos)
+    messages: list[dict[str, Any]] = [
+        {"role": "user", "content": f"Scan these repositories and propose plugins and catalog entities:\n{repo_list}"},
+    ]
+
+    try:
+        response_content = run_agent_loop(
+            client=client,
+            system=system_prompt,
+            tools=ALL_TOOLS,
+            messages=messages,
+            project_root=project_root,
+            on_event=_on_event,
+        )
+    except Exception as e:
+        console.print(f"\n[red]Agent failed: {e}[/red]")
+        return
+
+    # Step 6: Parse and display proposals
+    plugin_proposals, entity_proposals = parse_proposals_from_response(response_content)
 
     if not plugin_proposals and not entity_proposals:
-        console.print("\n[yellow]Agents didn't return structured proposals. Raw output:[/yellow]")
-        for msg in messages:
-            text = msg.get("text", "")
-            if text:
-                console.print(f"  {text[:200]}")
+        console.print("\n[yellow]Agent didn't return structured proposals. Raw output:[/yellow]")
+        for block in response_content:
+            if block.get("type") == "text":
+                console.print(f"  {block.get('text', '')[:500]}")
         return
 
     show_plugin_proposals(plugin_proposals)
     show_entity_proposals(entity_proposals)
 
-    # Step 6: Review
+    # Step 7: Review
     plugin_proposals, entity_proposals = prompt_review(plugin_proposals, entity_proposals)
 
     accepted_plugins = [p for p in plugin_proposals if p.accepted]
@@ -310,15 +316,29 @@ def run_app(project_root: Path | None = None) -> None:
         console.print("[yellow]Nothing to apply. Exiting.[/yellow]")
         return
 
-    # Step 7: Apply
+    # Step 8: Apply
     console.print("\n[bold]Applying configuration...[/bold]")
-    send_user_message(
-        ctx,
-        f"Apply these approved proposals:\n\nPlugins:\n{json.dumps([p.model_dump() for p in accepted_plugins], indent=2)}\n\nEntities:\n{json.dumps([e.model_dump() for e in accepted_entities], indent=2)}",
+    apply_msg = (
+        "Apply these approved proposals. Write the config files, restart RHDH, and verify health.\n\n"
+        f"Plugins:\n```json\n{json.dumps([p.model_dump() for p in accepted_plugins], indent=2, default=str)}\n```\n\n"
+        f"Entities:\n```json\n{json.dumps([e.model_dump() for e in accepted_entities], indent=2, default=str)}\n```"
     )
-    apply_messages = run_session_loop(ctx)
+    messages.append({"role": "user", "content": apply_msg})
 
-    # Step 8: Report
+    try:
+        run_agent_loop(
+            client=client,
+            system=system_prompt,
+            tools=ALL_TOOLS,
+            messages=messages,
+            project_root=project_root,
+            on_event=_on_event,
+        )
+    except Exception as e:
+        console.print(f"\n[red]Apply phase failed: {e}[/red]")
+        return
+
+    # Step 9: Report
     all_env_vars = []
     for p in accepted_plugins:
         all_env_vars.extend(p.required_env_vars)

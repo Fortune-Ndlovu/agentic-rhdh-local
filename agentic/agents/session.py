@@ -1,138 +1,99 @@
-"""Session management — create sessions, stream events, dispatch custom tool calls."""
+"""Tool-use loop — runs the agent via Messages API with local tool dispatch."""
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
 import anthropic
 
-from ..models import AgentIDs
 from ..tools.compose import get_container_logs, restart_rhdh
 from ..tools.github import get_file_content, get_repo_info, get_repo_languages, get_repo_tree
 from ..tools.health_check import check_rhdh_health, diagnose_plugin_errors, wait_for_healthy
 from ..tools.yaml_writer import write_yaml
 
-
-@dataclass
-class SessionContext:
-    """Tracks state for one onboarding session."""
-
-    client: anthropic.Anthropic
-    agent_ids: AgentIDs
-    session_id: str = ""
-    environment_id: str = ""
-    project_root: Path = field(default_factory=lambda: Path.cwd())
-    on_event: Callable[[str, dict[str, Any]], None] | None = None
+MODEL = "claude-sonnet-4-6"
 
 
-def create_session(ctx: SessionContext) -> str:
-    """Create an environment and session for the coordinator agent."""
-    env = ctx.client.beta.environments.create()
-    ctx.environment_id = env.id
+def run_agent_loop(
+    client: anthropic.Anthropic,
+    system: str,
+    tools: list[dict[str, Any]],
+    messages: list[dict[str, Any]],
+    project_root: Path,
+    on_event: Callable[[str, dict[str, Any]], None] | None = None,
+    max_turns: int = 25,
+) -> list[dict[str, Any]]:
+    """Run the Messages API tool-use loop until the agent finishes.
 
-    session = ctx.client.beta.sessions.create(
-        agent={"type": "agent", "id": ctx.agent_ids.coordinator},
-        environment_id=env.id,
-    )
-    ctx.session_id = session.id
-    return session.id
-
-
-def send_user_message(ctx: SessionContext, message: str) -> None:
-    """Send a user message to the session."""
-    ctx.client.beta.sessions.events.send(
-        session_id=ctx.session_id,
-        events=[{
-            "type": "user_message",
-            "content": [{"type": "text", "text": message}],
-        }],
-    )
-
-
-def run_session_loop(ctx: SessionContext) -> list[dict[str, Any]]:
-    """Stream session events until the session idles or terminates.
-
-    Returns collected agent messages (the final output).
+    Appends to `messages` in place (maintains conversation history across calls).
+    Returns the content blocks from the final assistant response.
     """
-    collected_messages: list[dict[str, Any]] = []
+    for turn in range(max_turns):
+        if on_event:
+            on_event("turn_start", {"turn": turn})
 
-    while True:
-        stream = ctx.client.beta.sessions.events.stream(session_id=ctx.session_id)
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=8192,
+            system=system,
+            tools=tools,
+            messages=messages,
+        )
 
-        for event in stream:
-            event_type = event.type
-            event_data = event.model_dump() if hasattr(event, "model_dump") else {}
+        assistant_content = _serialize_content(response.content)
+        messages.append({"role": "assistant", "content": assistant_content})
 
-            if ctx.on_event:
-                ctx.on_event(event_type, event_data)
+        if on_event:
+            for block in response.content:
+                if hasattr(block, "text"):
+                    on_event("agent_text", {"text": block.text})
 
-            if event_type == "agent.custom_tool_use":
-                result = _handle_custom_tool(ctx, event)
-                ctx.client.beta.sessions.events.send(
-                    session_id=ctx.session_id,
-                    events=[{
-                        "type": "user_custom_tool_result",
-                        "custom_tool_use_id": event.id,
-                        "content": [{"type": "text", "text": json.dumps(result)}],
-                    }],
-                )
+        if response.stop_reason == "end_turn":
+            return assistant_content
 
-            elif event_type == "agent.message":
-                content = event_data.get("content", [])
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        collected_messages.append({
-                            "type": "agent_message",
-                            "text": block.get("text", ""),
-                        })
+        if response.stop_reason == "tool_use":
+            tool_results = []
+            for block in response.content:
+                if block.type == "tool_use":
+                    if on_event:
+                        on_event("tool_use", {"tool": block.name, "input": block.input})
 
-            elif event_type == "agent.thread_message_received":
-                collected_messages.append({
-                    "type": "thread_message",
-                    "from_agent": event_data.get("from_agent_name", ""),
-                    "content": event_data.get("content", ""),
-                })
+                    result = dispatch_tool(block.name, block.input, project_root)
 
-            elif event_type == "session.status_idle":
-                stop_reason = event_data.get("stop_reason", {})
-                if isinstance(stop_reason, dict) and stop_reason.get("type") == "end_turn":
-                    return collected_messages
+                    if on_event:
+                        on_event("tool_result", {"tool": block.name, "result": result})
 
-            elif event_type == "session.status_terminated":
-                return collected_messages
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": json.dumps(result),
+                    })
 
-            elif event_type == "session.error":
-                error_msg = event_data.get("error", {}).get("message", "Unknown error")
-                collected_messages.append({"type": "error", "text": error_msg})
-                return collected_messages
+            messages.append({"role": "user", "content": tool_results})
+        else:
+            break
 
-        break
-
-    return collected_messages
+    return assistant_content
 
 
-def _handle_custom_tool(ctx: SessionContext, event: Any) -> dict[str, Any]:
-    """Dispatch a custom tool call to the appropriate local handler."""
-    tool_name = event.name
-    tool_input = event.input if isinstance(event.input, dict) else {}
-
+def dispatch_tool(name: str, tool_input: dict[str, Any], project_root: Path) -> dict[str, Any]:
+    """Execute a tool locally and return the result."""
     try:
-        if tool_name == "scan_repo_tree":
+        if name == "scan_repo_tree":
             tree = get_repo_tree(tool_input["owner"], tool_input["repo"])
             return {"files": tree, "count": len(tree)}
 
-        elif tool_name == "read_repo_file":
+        elif name == "read_repo_file":
             content = get_file_content(tool_input["owner"], tool_input["repo"], tool_input["path"])
             return {"content": content}
 
-        elif tool_name == "get_repo_languages":
+        elif name == "get_repo_languages":
             langs = get_repo_languages(tool_input["owner"], tool_input["repo"])
             return {"languages": langs}
 
-        elif tool_name == "get_repo_info":
+        elif name == "get_repo_info":
             info = get_repo_info(tool_input["owner"], tool_input["repo"])
             return {
                 "default_branch": info.get("default_branch", "main"),
@@ -141,16 +102,16 @@ def _handle_custom_tool(ctx: SessionContext, event: Any) -> dict[str, Any]:
                 "topics": info.get("topics", []),
             }
 
-        elif tool_name == "write_yaml":
-            path = ctx.project_root / tool_input["path"]
+        elif name == "write_yaml":
+            path = project_root / tool_input["path"]
             write_yaml(path, tool_input["content"])
             return {"success": True, "path": str(path)}
 
-        elif tool_name == "restart_rhdh":
-            success, output = restart_rhdh(ctx.project_root)
+        elif name == "restart_rhdh":
+            success, output = restart_rhdh(project_root)
             return {"success": success, "output": output}
 
-        elif tool_name == "check_rhdh_health":
+        elif name == "check_rhdh_health":
             if tool_input.get("wait", False):
                 result = wait_for_healthy(max_wait=tool_input.get("max_wait", 120))
             else:
@@ -161,20 +122,40 @@ def _handle_custom_tool(ctx: SessionContext, event: Any) -> dict[str, Any]:
                 "message": result.message,
             }
 
-        elif tool_name == "diagnose_plugin_errors":
-            errors = diagnose_plugin_errors(ctx.project_root, lines=tool_input.get("lines", 200))
+        elif name == "diagnose_plugin_errors":
+            errors = diagnose_plugin_errors(project_root, lines=tool_input.get("lines", 200))
             return {"errors": errors, "count": len(errors)}
 
-        elif tool_name == "read_container_logs":
+        elif name == "read_container_logs":
             logs = get_container_logs(
-                ctx.project_root,
+                project_root,
                 service=tool_input.get("service", "rhdh"),
                 lines=tool_input.get("lines", 100),
             )
             return {"logs": logs}
 
         else:
-            return {"error": f"Unknown tool: {tool_name}"}
+            return {"error": f"Unknown tool: {name}"}
 
     except Exception as e:
         return {"error": str(e)}
+
+
+def _serialize_content(content: list[Any]) -> list[dict[str, Any]]:
+    """Convert SDK content blocks to JSON-serializable dicts for message history."""
+    serialized = []
+    for block in content:
+        if block.type == "text":
+            serialized.append({"type": "text", "text": block.text})
+        elif block.type == "tool_use":
+            serialized.append({
+                "type": "tool_use",
+                "id": block.id,
+                "name": block.name,
+                "input": block.input,
+            })
+        elif block.type == "thinking":
+            serialized.append({"type": "thinking", "thinking": block.thinking})
+        else:
+            serialized.append({"type": block.type})
+    return serialized
