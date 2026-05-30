@@ -199,6 +199,7 @@ BLOCKED_PLUGINS: set[str] = {
 ALWAYS_RECOMMEND_PLUGINS: list[dict[str, str]] = [
     {"plugin": "adoption-insights", "reason": "Platform usage metrics dashboard"},
     {"plugin": "notifications", "reason": "In-app notification system for catalog changes and CI events"},
+    {"plugin": "lightspeed", "reason": "AI assistant for Developer Hub — configure provider in default.env (Vertex AI, OpenAI, vLLM, Ollama)"},
 ]
 
 

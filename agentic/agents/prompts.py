@@ -400,9 +400,10 @@ Note: `system` should be the `metadata.name` from the root `catalog-info.yaml` S
 Check the BLOCKED section in the plugin knowledge base and never include any listed plugin.
 
 ### Always-Include Plugins (every onboarding)
-These Tier 1 plugins enhance every RHDH instance. ALWAYS include them in proposals:
+These plugins enhance every RHDH instance. ALWAYS include them in proposals:
 - **adoption-insights** — Platform usage metrics dashboard
 - **notifications** — In-app notification system
+- **lightspeed** — AI assistant for Developer Hub (provider configured in default.env)
 Check the ALWAYS INCLUDE section in the plugin knowledge base.
 
 ### Signal-Driven Plugins
