@@ -8,6 +8,18 @@ spec:
 ---
 
 apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: fortune-ndlovu
+spec:
+  profile:
+    displayName: Fortune Ndlovu
+    picture: https://avatars.githubusercontent.com/Fortune-Ndlovu
+  memberOf: [rhdh-team]
+
+---
+
+apiVersion: backstage.io/v1alpha1
 kind: Group
 metadata:
   name: rhdh-team

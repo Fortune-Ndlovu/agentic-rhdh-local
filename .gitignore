@@ -1,4 +1,5 @@
 .env
+default.env
 configs/github-app-credentials.yaml
 configs/.npmrc
 /tmp
