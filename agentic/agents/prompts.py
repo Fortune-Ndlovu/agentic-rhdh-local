@@ -126,7 +126,7 @@ metadata:
 spec:
   type: <service|website|library|resource>
   lifecycle: production
-  owner: user:default/guest
+  owner: {default_owner}
 ```
 
 ## Type Inference Rules
@@ -158,7 +158,7 @@ Return a JSON array:
     "component_type": "service",
     "description": "Go backend service with Kubernetes deployment",
     "source_repo": "https://github.com/org/backend-service",
-    "owner": "user:default/guest",
+    "owner": "{default_owner}",
     "lifecycle": "production",
     "annotations": {
       "github.com/project-slug": "org/backend-service",
@@ -374,7 +374,7 @@ ENTITY_PROPOSALS:
     "component_type": "service",
     "description": "Descriptive summary based on what you learned about the repo",
     "source_repo": "https://github.com/org/repo-name",
-    "owner": "user:default/guest",
+    "owner": "{default_owner}",
     "lifecycle": "production",
     "system": "system-name-from-catalog-info",
     "annotations": {
@@ -403,7 +403,8 @@ ALWAYS follow this tiered approach for initial recommendations:
 Examples: techdocs, tech-radar, topology (frontend only), quay (frontend only), notifications, global-floating-action-button
 
 **Tier 2 [needs GITHUB_TOKEN only]**: Need only GITHUB_TOKEN which most developers already have. Include if GitHub signals found.
-Examples: github-actions, github-pull-requests, github-issues
+Examples: github-actions, github-pull-requests
+**NEVER recommend github-issues** — the plugin is incompatible with file: source-location entities and will crash.
 
 ### Tier 3 [advanced] — Surface with context, don't auto-include
 
@@ -495,7 +496,7 @@ When given approved proposals:
      spec:
        type: <service|website|library|resource>
        lifecycle: production
-       owner: <owner-from-catalog-info or user:default/guest>
+       owner: {default_owner}
        system: <system-name-from-catalog-info>
      ```
 
@@ -600,6 +601,7 @@ If errors are found:
 """
 
 
-def build_unified_system(knowledge_context: str) -> str:
-    """Build the full system prompt with knowledge base appended."""
-    return UNIFIED_SYSTEM + "\n\n" + knowledge_context
+def build_unified_system(knowledge_context: str, *, owner: str = "group:default/rhdh-team") -> str:
+    """Build the full system prompt with knowledge base and owner identity."""
+    prompt = UNIFIED_SYSTEM.replace("{default_owner}", owner)
+    return prompt + "\n\n" + knowledge_context

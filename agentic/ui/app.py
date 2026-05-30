@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,8 @@ from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
 from rich import box
+
+import yaml
 
 from ..agents.client import create_client
 from ..agents.prompts import build_unified_system
@@ -212,6 +215,43 @@ def show_completion(
             console.print(f"  [dim]- {var}[/dim]")
 
 
+def _detect_catalog_owner(project_root: Path) -> str:
+    """Read users.yaml to find the real user entity for component ownership."""
+    users_file = project_root / "configs" / "catalog-entities" / "users.yaml"
+    if not users_file.exists():
+        return "group:default/rhdh-team"
+
+    try:
+        with open(users_file) as f:
+            docs = list(yaml.safe_load_all(f))
+        for doc in docs:
+            if not isinstance(doc, dict):
+                continue
+            if doc.get("kind") == "User":
+                name = doc.get("metadata", {}).get("name", "")
+                if name and name != "user":
+                    return f"user:default/{name}"
+    except Exception:
+        pass
+    return "group:default/rhdh-team"
+
+
+def _github_integration_configured(project_root: Path) -> bool:
+    """Check if GitHub integration is already in app-config.local.yaml."""
+    local_cfg = project_root / "configs" / "app-config" / "app-config.local.yaml"
+    if not local_cfg.exists():
+        return False
+    try:
+        with open(local_cfg) as f:
+            data = yaml.safe_load(f)
+        return bool(
+            isinstance(data, dict)
+            and data.get("integrations", {}).get("github")
+        )
+    except Exception:
+        return False
+
+
 _VALID_COMPONENT_TYPES = {"service", "website", "library", "resource"}
 _VALID_LIFECYCLES = {"production", "experimental", "development", "deprecated"}
 _VALID_CONFIDENCES = {"high", "medium", "low"}
@@ -344,9 +384,10 @@ def run_app(project_root: Path | None = None) -> None:
         console.print(f"[red]{e}[/red]")
         return
 
-    # Step 4: Build system prompt with knowledge context
+    # Step 4: Build system prompt with knowledge context + owner identity
     knowledge_context = kb.to_agent_context()
-    system_prompt = build_unified_system(knowledge_context)
+    owner = _detect_catalog_owner(project_root)
+    system_prompt = build_unified_system(knowledge_context, owner=owner)
 
     # Step 5: Scan + Propose
     console.print("\n[bold]Scanning repositories...[/bold]")
@@ -392,6 +433,9 @@ def run_app(project_root: Path | None = None) -> None:
         console.print("[yellow]Nothing to apply. Exiting.[/yellow]")
         return
 
+    # Snapshot baseline app-config before the agent modifies it
+    _save_baseline(project_root)
+
     # Step 8: Apply
     console.print("\n[bold]Applying configuration...[/bold]")
     apply_msg = (
@@ -420,8 +464,153 @@ def run_app(project_root: Path | None = None) -> None:
     for p in accepted_plugins:
         all_env_vars.extend(p.required_env_vars)
 
+    if _github_integration_configured(project_root):
+        all_env_vars = [v for v in all_env_vars if v != "GITHUB_TOKEN"]
+
     show_completion(
         plugin_count=len(accepted_plugins),
         entity_count=len(accepted_entities),
         env_vars=all_env_vars,
     )
+
+
+_BASELINE_SUFFIX = ".baseline"
+
+
+def _save_baseline(project_root: Path) -> None:
+    """Snapshot app-config.local.yaml before the agent modifies it.
+
+    Only saves if a baseline doesn't already exist, preserving the true
+    pre-onboarding state across multiple agent runs.
+    """
+    local_cfg = project_root / "configs" / "app-config" / "app-config.local.yaml"
+    baseline = local_cfg.with_suffix(local_cfg.suffix + _BASELINE_SUFFIX)
+    if local_cfg.exists() and not baseline.exists():
+        shutil.copy2(local_cfg, baseline)
+
+
+def _discover_generated_files(project_root: Path) -> dict[str, list[Path]]:
+    """Find all agent-generated files that reset should remove."""
+    catalog_dir = project_root / "configs" / "catalog-entities"
+    plugins_dir = project_root / "configs" / "dynamic-plugins"
+
+    result: dict[str, list[Path]] = {
+        "entities": [],
+        "techdocs": [],
+        "overrides": [],
+        "backups": [],
+    }
+
+    if catalog_dir.exists():
+        for f in catalog_dir.glob("*-component.yaml"):
+            result["entities"].append(f)
+        for d in catalog_dir.iterdir():
+            if d.is_dir() and d.name.endswith("-docs"):
+                result["techdocs"].append(d)
+        comp_override = catalog_dir / "components.override.yaml"
+        if comp_override.exists():
+            result["overrides"].append(comp_override)
+
+    plugin_override = plugins_dir / "dynamic-plugins.override.yaml"
+    if plugin_override.exists():
+        result["overrides"].append(plugin_override)
+
+    for bak in project_root.joinpath("configs").rglob("*.bak"):
+        result["backups"].append(bak)
+
+    return result
+
+
+def run_reset(project_root: Path | None = None, *, skip_confirm: bool = False) -> None:
+    """Reset RHDH to the baseline state by removing all agent-generated files."""
+    if project_root is None:
+        project_root = Path.cwd()
+
+    console.print(Panel(
+        Text("Agentic RHDH Local — Reset to Baseline", style="bold cyan"),
+        box=box.DOUBLE,
+        padding=(1, 2),
+    ))
+
+    generated = _discover_generated_files(project_root)
+    total = sum(len(v) for v in generated.values())
+
+    local_cfg = project_root / "configs" / "app-config" / "app-config.local.yaml"
+    baseline = local_cfg.with_suffix(local_cfg.suffix + _BASELINE_SUFFIX)
+    has_baseline = baseline.exists()
+
+    if total == 0 and not has_baseline:
+        console.print("\n[green]Already at baseline — nothing to reset.[/green]")
+        return
+
+    # Show what will be removed
+    console.print("\n[bold]The following will be removed:[/bold]")
+    for entity in generated["entities"]:
+        console.print(f"  [red]✕[/red] {entity.relative_to(project_root)}")
+    for docs_dir in generated["techdocs"]:
+        console.print(f"  [red]✕[/red] {docs_dir.relative_to(project_root)}/")
+    for override in generated["overrides"]:
+        console.print(f"  [red]✕[/red] {override.relative_to(project_root)}")
+    for bak in generated["backups"]:
+        console.print(f"  [dim]✕ {bak.relative_to(project_root)}[/dim]")
+    if has_baseline:
+        console.print(f"  [yellow]↺[/yellow] configs/app-config/app-config.local.yaml [dim](restore baseline)[/dim]")
+
+    if not skip_confirm:
+        console.print()
+        confirm = Prompt.ask(
+            "[bold]Reset to baseline?[/bold]",
+            choices=["y", "n"],
+            default="n",
+        )
+        if confirm != "y":
+            console.print("[dim]Reset cancelled.[/dim]")
+            return
+
+    # Delete generated files
+    console.print()
+    removed = 0
+    for entity in generated["entities"]:
+        entity.unlink()
+        removed += 1
+    for docs_dir in generated["techdocs"]:
+        shutil.rmtree(docs_dir)
+        removed += 1
+    for override in generated["overrides"]:
+        override.unlink()
+        removed += 1
+    for bak in generated["backups"]:
+        bak.unlink()
+        removed += 1
+
+    # Restore app-config baseline
+    if has_baseline:
+        shutil.copy2(baseline, local_cfg)
+        baseline.unlink()
+        console.print("[green]✓[/green] Restored app-config.local.yaml to baseline")
+
+    console.print(f"[green]✓[/green] Removed {removed} generated files")
+
+    # Restart RHDH
+    from ..tools.compose import restart_rhdh, is_running
+
+    if is_running(project_root):
+        console.print("[dim]Restarting RHDH...[/dim]")
+        success, output = restart_rhdh(project_root)
+        if not success:
+            console.print(f"[red]Restart failed: {output}[/red]")
+            return
+
+        from ..tools.health_check import wait_for_healthy
+
+        console.print("[dim]Waiting for RHDH to become healthy...[/dim]")
+        result = wait_for_healthy()
+        if result.healthy:
+            console.print("[green]✓[/green] RHDH is healthy")
+        else:
+            console.print(f"[yellow]RHDH health check: {result.message}[/yellow]")
+
+    console.print(Panel(
+        "[bold green]Reset complete — RHDH is back to baseline[/bold green]",
+        box=box.ROUNDED,
+    ))
