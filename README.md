@@ -1,8 +1,8 @@
 # Agentic RHDH Local
 
-> A proof-of-concept multi-agent system that automates Red Hat Developer Hub onboarding. Instead of manually discovering plugins, writing YAML configs, and creating catalog entities, users provide their GitHub repo URLs and the system does the rest.
+> An AI-powered CLI that automates Red Hat Developer Hub onboarding. Instead of manually discovering plugins, writing YAML configs, and creating catalog entities, users provide their GitHub repo URLs and the agent does the rest.
 
-Built on [Anthropic Managed Agents SDK](https://docs.anthropic.com/en/docs/agents-and-tools/managed-agents) and [RHDH Local](https://github.com/redhat-developer/rhdh-local).
+Built on the [Anthropic Messages API](https://docs.anthropic.com/en/docs/build-with-claude/tool-use/overview) (tool-use loop) and [RHDH Local](https://github.com/redhat-developer/rhdh-local).
 
 > [!CAUTION]
 >
@@ -23,7 +23,7 @@ This is error-prone, time-consuming, and requires deep RHDH knowledge before see
 
 ## The Solution
 
-A multi-agent system where the user's only job is to say: **"here are my repos."**
+A single unified agent where the user's only job is to say: **"here are my repos."**
 
 ```
 $ agentic-rhdh
@@ -36,31 +36,33 @@ $ agentic-rhdh
 
 Add your team's repositories:
 
-  > https://github.com/my-org/backend-service    ✓
-  > https://github.com/my-org/frontend-app       ✓
-  > https://github.com/my-org/infra-configs      ✓
+  > https://github.com/redhat-developer/rhdh-operator   ✓
 
-Scanning repositories... (3 agents running in parallel)
-  ├── backend-service: Go, Dockerfile, Kubernetes manifests, GitHub Actions
-  ├── frontend-app: React, TypeScript, mkdocs.yml, GitHub Actions
-  └── infra-configs: Helm charts, ArgoCD configs, Tekton pipelines
+✓ Loaded 84 plugins from catalog index
+✓ Claude client ready
 
-Proposed Plugins (7):
-╭────┬────────────────────────┬────────────┬────────────┬──────────────────────────────╮
-│ #  │ Plugin                 │ Confidence │ Category   │ Reason                       │
-├────┼────────────────────────┼────────────┼────────────┼──────────────────────────────┤
-│ ✓  │ GitHub Actions         │ high       │ CI/CD      │ Workflows in 2 repos         │
-│ ✓  │ Kubernetes             │ high       │ Kubernetes │ K8s manifests in backend     │
-│ ✓  │ TechDocs               │ high       │ Docs       │ mkdocs.yml in frontend       │
-│ ✓  │ Tekton                 │ high       │ CI/CD      │ Tekton pipelines in infra    │
-│ ✓  │ ArgoCD                 │ medium     │ GitOps     │ ArgoCD configs in infra      │
-│ ✓  │ Topology               │ medium     │ Container  │ Dockerfiles detected         │
-│ ○  │ GitHub Pull Requests   │ low        │ SCM        │ GitHub repos detected        │
-╰────┴────────────────────────┴────────────┴────────────┴──────────────────────────────╯
+Scanning repositories...
+  ├── Scanning redhat-developer/rhdh-operator...
+  │   Found 363 files
+  │   Checking languages...
+  │   Reading README.md...
 
-  [a] Accept all  [e] Edit selections  [r] Reject all
+Proposed Plugins (8):
+╭─────┬──────────────────────────┬────────────────┬──────────────────────────────────────────╮
+│ #   │ Plugin                   │ Category       │ Reason                                   │
+├─────┼──────────────────────────┼────────────────┼──────────────────────────────────────────┤
+│ 1   │ TechDocs                 │ Documentation  │ Rich docs/ directory with 10+ files      │
+│ 2   │ Adoption Insights        │ Analytics      │ Platform usage metrics dashboard         │
+│ 3   │ Notifications            │ Notifications  │ In-app notification system                │
+│ 4   │ Lightspeed               │ AI Assistant   │ AI assistant for Developer Hub            │
+│ 5   │ GitHub Actions           │ CI/CD          │ 14 workflows — nightly builds, PR tests   │
+│ 6   │ GitHub Pull Requests     │ Source Control │ Active PR template + CODEOWNERS           │
+│ 7   │ GitHub Insights          │ Source Control │ Language breakdown, contributors, license  │
+│ 8   │ Security Insights        │ Security       │ Dependabot alerts, security advisories    │
+╰─────┴──────────────────────────┴────────────────┴──────────────────────────────────────────╯
 
-  > a
+  Options: all, none, pick by row number (e.g. 1,4,5), or natural language (e.g. "remove notifications")
+  Which plugins? (all): all
 
 Applying configuration...
   ├── Writing dynamic-plugins.override.yaml... ✓
@@ -68,48 +70,138 @@ Applying configuration...
   ├── Restarting RHDH... ✓
   └── Health check passed ✓
 
-RHDH is ready at http://localhost:7007
-6 plugins enabled, 3 catalog entities added
+╭──────────────────────────────────────────────────────────────────────╮
+│ RHDH is ready at http://localhost:7007                              │
+│ 8 plugins enabled, 1 catalog entities added                        │
+│                                                                    │
+│ Onboarding summary saved to ONBOARDING.md                          │
+╰──────────────────────────────────────────────────────────────────────╯
 ```
 
 ## Architecture
 
-Four specialist agents coordinated by an orchestrator, all running as Anthropic Managed Agents:
+A unified agent powered by Claude (via Vertex AI or direct API), using a tool-use loop to scan repos, recommend plugins, generate catalog entities, and write config — all in a single conversation turn.
 
+```mermaid
+graph TB
+    subgraph CLI["CLI (Rich TUI)"]
+        Input["User adds repos"]
+        Review["Natural language review"]
+        Output["Completion + ONBOARDING.md"]
+    end
+
+    subgraph Agent["Unified Agent (Claude Sonnet via Vertex AI)"]
+        Scan["Scan repos via GitHub API"]
+        Recommend["Recommend plugins"]
+        Generate["Generate catalog entities"]
+        Apply["Write config + restart RHDH"]
+    end
+
+    subgraph KB["Knowledge Base"]
+        CatalogIndex["Plugin Catalog Index<br/>(84 plugins from OCI image)"]
+        SignalMap["Signal Map<br/>(file patterns → plugins)"]
+        BlockedAlways["Blocked / Always-Include<br/>control lists"]
+    end
+
+    subgraph Tools["Local Tools"]
+        GitHub["GitHub API<br/>(gh CLI)"]
+        YAML["YAML Writer<br/>(atomic writes)"]
+        Compose["Compose<br/>(restart, health)"]
+        Health["Health Check<br/>(log diagnosis)"]
+    end
+
+    Input --> Scan
+    Scan --> GitHub
+    Scan --> Recommend
+    Recommend --> CatalogIndex
+    Recommend --> SignalMap
+    Recommend --> BlockedAlways
+    Recommend --> Generate
+    Generate --> Review
+    Review --> Apply
+    Apply --> YAML
+    Apply --> Compose
+    Apply --> Health
+    Health --> Output
 ```
-┌─────────────────────────────────────────────────────┐
-│                  CLI (Rich TUI)                      │
-│   User adds repos → sees proposals → approves       │
-└────────────────────────┬────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────┐
-│      Coordinator Agent (Anthropic Managed Agent)     │
-│   Orchestrates specialists, collects proposals,      │
-│   presents unified approval, drives apply phase      │
-└──┬──────────┬──────────┬──────────┬─────────────────┘
-   │          │          │          │
-   ▼          ▼          ▼          ▼
-┌────────┐ ┌──────────┐ ┌────────┐ ┌──────────┐
-│  Repo  │ │ Plugin   │ │Catalog │ │ Config   │
-│Scanner │ │Recommender│ │ Entity │ │ Writer   │
-│ Agent  │ │  Agent   │ │ Agent  │ │ Agent    │
-└────────┘ └──────────┘ └────────┘ └──────────┘
+
+### Onboarding Flow
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant CLI as CLI (Rich TUI)
+    participant Agent as Claude Agent
+    participant GH as GitHub API
+    participant KB as Plugin KB
+    participant RHDH as RHDH Container
+
+    User->>CLI: Enter repo URLs
+    CLI->>Agent: Scan + Propose
+
+    Agent->>GH: get_repo_info, scan_repo_tree
+    GH-->>Agent: File tree, languages, README
+
+    Agent->>KB: lookup_plugin_config (per signal)
+    KB-->>Agent: Package refs, pluginConfig
+
+    Agent-->>CLI: Plugin proposals + Entity proposals
+
+    CLI->>User: Show proposals table
+    User->>CLI: Natural language selection<br/>("all", "1,3,5", "remove notifications")
+
+    CLI->>Agent: Apply approved proposals
+    Agent->>RHDH: write configs, restart, health check
+    RHDH-->>Agent: Healthy
+
+    CLI->>User: RHDH ready + ONBOARDING.md
 ```
 
-| Agent | What it does |
-|-------|-------------|
-| **Repo Scanner** | Scans GitHub repos via API — detects technologies (GitHub Actions, Kubernetes, Tekton, ArgoCD, Docker, TechDocs, etc.) from file tree patterns |
-| **Plugin Recommender** | Maps detected signals to RHDH plugins using the catalog index knowledge base — includes complete `pluginConfig` from authoritative source |
-| **Catalog Entity Generator** | Creates Backstage `Component` entities with inferred type (service/website/library), lifecycle, and annotations |
-| **Config Writer** | Writes override YAML files, restarts RHDH, verifies health, diagnoses errors from logs, retries up to 3 times |
+### Plugin Selection
 
-### Key Design Decisions
+```mermaid
+graph LR
+    subgraph Always["Always Include"]
+        AI["Adoption Insights"]
+        N["Notifications"]
+        LS["Lightspeed"]
+    end
 
-- **Anthropic Managed Agents SDK** — Server-side agents with coordinator pattern, built-in tools, streaming events, session persistence. No custom orchestration needed.
-- **No vector DB** — The RHDH plugin catalog (~84 plugins) is small and structured. Deterministic matching against file patterns is more reliable than semantic search.
-- **Catalog index as source of truth** — `dynamic-plugins.default.yaml` from `quay.io/rhdh/plugin-catalog-index:1.9` has every plugin's complete config. Agents use real configs, not hallucinated ones.
-- **Override files only** — Agents never touch default configs. Everything goes through `dynamic-plugins.override.yaml`, `app-config.local.yaml`, etc.
-- **Custom tools execute locally** — Agents decide what to do; the CLI executes locally. File writes, compose commands, and health checks stay under user control.
+    subgraph Signal["Signal-Driven"]
+        subgraph T1["Tier 1 (zero-config)"]
+            TD["TechDocs"]
+        end
+        subgraph T2["Tier 2 (GITHUB_TOKEN)"]
+            GA["GitHub Actions"]
+            GPR["GitHub PRs"]
+            GI["GitHub Insights"]
+            SI["Security Insights"]
+        end
+    end
+
+    subgraph Blocked["Blocked"]
+        GIS["github-issues<br/>❌ crashes with file: source-location"]
+    end
+
+    Always --> Proposed["Proposed to User"]
+    T1 --> Proposed
+    T2 --> Proposed
+```
+
+## Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Unified agent** | Single Claude agent handles the full pipeline — no multi-agent coordination overhead |
+| **Plugin knowledge base** | 84 plugins indexed from `quay.io/rhdh/plugin-catalog-index:1.9` — real configs, not hallucinated |
+| **Signal detection** | File patterns in repos map to plugin recommendations with confidence levels |
+| **Always-include plugins** | Adoption Insights, Notifications, and Lightspeed proposed on every onboarding |
+| **Blocked plugins** | `github-issues` blocked (crashes with `file:` source-location entities) |
+| **Natural language review** | "remove notifications", "only keep GitHub Actions", "1,3,5" — local keyword parsing + Claude fallback |
+| **Owner detection** | Reads `users.yaml` to set component owner to the signed-in GitHub user |
+| **Onboarding doc** | `ONBOARDING.md` generated with plugin table, config locations, and next steps |
+| **Reset** | `agentic-rhdh reset` removes all generated files and restores baseline |
+| **Resilient apply** | Config writer retries up to 3 times with log-based error diagnosis |
 
 ## Quick Start
 
@@ -117,7 +209,9 @@ Four specialist agents coordinated by an orchestrator, all running as Anthropic 
 
 - Python 3.11+
 - [Podman](https://podman.io/docs/installation) v5.4.1+ or [Docker](https://docs.docker.com/engine/) v28.1.0+ with Compose
-- An Anthropic API key (`ANTHROPIC_API_KEY`)
+- Claude API access — either:
+  - **Vertex AI**: `CLAUDE_CODE_USE_VERTEX=1` + `ANTHROPIC_VERTEX_PROJECT_ID` (GCP billing)
+  - **Direct**: `ANTHROPIC_API_KEY`
 - GitHub auth via [`gh` CLI](https://cli.github.com/) (`gh auth login`) or `GITHUB_TOKEN` env var
 
 ### Run
@@ -131,50 +225,56 @@ podman compose up -d  # or: docker compose up -d
 # Install the agentic CLI
 pip install -e .
 
-# Set your API key
+# Option A: Vertex AI (GCP billing)
+export CLAUDE_CODE_USE_VERTEX=1
+export ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project
+
+# Option B: Direct Anthropic API
 export ANTHROPIC_API_KEY=sk-ant-...
 
 # Run the onboarding agent
 agentic-rhdh
 ```
 
-### Options
+### Commands
 
-```
-agentic-rhdh --help
-agentic-rhdh --project-dir /path/to/agentic-rhdh-local
+```sh
+agentic-rhdh                          # Run onboarding
+agentic-rhdh reset                    # Remove all generated config, restore baseline
+agentic-rhdh --project-dir /path/to   # Use a different project directory
 ```
 
 ## Project Structure
 
 ```
 agentic-rhdh-local/
-├── agentic/                        # Multi-agent onboarding system (Python)
+├── agentic/                        # AI-powered onboarding system (Python)
 │   ├── __main__.py                 # CLI entry point (Typer)
 │   ├── models.py                   # Pydantic data models
-│   ├── agents/                     # Agent definitions & orchestration
-│   │   ├── prompts.py              # System prompts for all 5 agents
-│   │   ├── tools.py                # Custom tool JSON Schema definitions
-│   │   ├── setup.py                # Agent creation via Managed Agents API
-│   │   └── session.py              # Session lifecycle, event streaming, tool dispatch
+│   ├── agents/                     # Agent definitions
+│   │   ├── client.py               # Client factory (auto-detects Vertex AI or direct API)
+│   │   ├── prompts.py              # System prompt with plugin selection policy
+│   │   ├── session.py              # Tool-use loop (Messages API)
+│   │   └── tools.py                # Tool JSON Schema definitions
 │   ├── knowledge/                  # Plugin knowledge base
 │   │   ├── extractor.py            # Extracts catalog index image (podman/docker)
 │   │   ├── plugin_index.py         # PluginKnowledgeBase — 84 plugins indexed
-│   │   └── signal_map.py           # File patterns → technology → plugin mapping
+│   │   └── signal_map.py           # File patterns → plugins, blocked/always-include lists
 │   ├── tools/                      # Local tool implementations
 │   │   ├── github.py               # GitHub API (gh CLI / GITHUB_TOKEN fallback)
 │   │   ├── yaml_writer.py          # Atomic YAML writes with backup
 │   │   ├── compose.py              # Podman/Docker compose operations
 │   │   └── health_check.py         # RHDH health check + log-based error diagnosis
 │   └── ui/                         # CLI interface
-│       └── app.py                  # Rich TUI — input, progress, proposals, review
+│       └── app.py                  # Rich TUI — input, proposals, NL review, onboarding doc
 ├── pyproject.toml                  # Python project config
 ├── compose.yaml                    # RHDH Local container orchestration
-├── configs/                        # RHDH configuration (agents write overrides here)
+├── default.env                     # Default env vars (Lightspeed, GitHub auth, DB)
+├── configs/                        # RHDH configuration (agent writes overrides here)
 │   ├── dynamic-plugins/            # Plugin configs (default + override)
-│   ├── catalog-entities/           # Catalog entity YAML
+│   ├── catalog-entities/           # Catalog entity YAML + TechDocs
 │   └── app-config/                 # App config YAML
-├── plan.md                         # Implementation plan and status
+├── ONBOARDING.md                   # Generated onboarding summary (after running agent)
 └── ...                             # RHDH Local base files (scripts, docs, etc.)
 ```
 
@@ -183,21 +283,23 @@ agentic-rhdh-local/
 | Component | Technology | Why |
 |-----------|-----------|-----|
 | Language | Python 3.11+ | Clean SDK support, strong YAML/JSON tooling, fast iteration |
-| Agent Runtime | Anthropic Managed Agents SDK | Server-side agents, coordinator pattern, streaming, persistence |
-| Model | `claude-sonnet-4-6` | Fast, strong tool use, cost-effective for multi-agent workloads |
+| Agent Runtime | Anthropic Messages API (tool-use loop) | Single agent, local tool dispatch, no server-side state |
+| Model | Claude Sonnet 4.6 (via Vertex AI or direct) | Strong tool use, cost-effective, auto-detected auth |
 | CLI Framework | Rich + Typer | Interactive TUI with tables, progress, prompts |
 | Data Models | Pydantic v2 | Typed, validated, serializable |
 | Plugin Data | RHDH Catalog Index Image | Authoritative source, version-matched, no vector DB |
-| HTTP Client | httpx | Async-ready, modern Python HTTP |
 | Container Runtime | Podman/Docker (auto-detected) | For RHDH lifecycle management |
 
 ## Signals Detected
 
-The scanner agent recognizes these technologies from repo file patterns:
+The agent recognizes these technologies from repo file patterns:
 
 | Signal | File Patterns | Maps To |
 |--------|--------------|---------|
 | GitHub Actions | `.github/workflows/*.yml` | github-actions plugin |
+| GitHub Pull Requests | `.github/**/*` | github-pull-requests plugin |
+| GitHub Insights | `.github/**/*` | github-insights plugin |
+| Security Insights | `.github/**/*` | security-insights plugin |
 | Tekton | `tekton/`, `.tekton/`, `apiVersion: tekton.dev/` | tekton plugin |
 | Jenkins | `Jenkinsfile` | jenkins plugin |
 | ArgoCD | `argocd/`, `argoproj.io/` | argocd plugin |
@@ -213,20 +315,29 @@ The scanner agent recognizes these technologies from repo file patterns:
 
 ## Config Writer Resilience
 
-The config writer agent doesn't just write files and hope for the best. It follows a resilience loop:
+The agent doesn't just write files and hope for the best. It follows a resilience loop:
 
-```
-Write config → Restart RHDH → Health check → Check logs for errors
-    │                                              │
-    │              ┌───────────────────────────────┘
-    │              ▼
-    │         Error found?
-    │          ├── Missing env var → add placeholder to .env, retry
-    │          ├── Bad config → fix YAML, retry
-    │          ├── OCI pull failed → try alternative version, retry
-    │          └── Max retries (3) → disable plugin, report failure
-    │
-    └── Never silently gives up — always reports what happened
+```mermaid
+graph TD
+    Write["Write config files"] --> Restart["Restart RHDH"]
+    Restart --> Health["Health check"]
+    Health --> Logs["Check logs for errors"]
+    Logs --> Found{"Error found?"}
+
+    Found -->|No| Done["Done ✓"]
+    Found -->|Yes| Diagnose{"Diagnose error"}
+
+    Diagnose -->|Missing env var| Fix1["Add placeholder to .env"]
+    Diagnose -->|Bad config| Fix2["Fix YAML"]
+    Diagnose -->|OCI pull failed| Fix3["Try alternative version"]
+    Diagnose -->|Max retries reached| Disable["Disable plugin, report failure"]
+
+    Fix1 --> Retry{"Retry < 3?"}
+    Fix2 --> Retry
+    Fix3 --> Retry
+
+    Retry -->|Yes| Write
+    Retry -->|No| Disable
 ```
 
 ## RHDH Local Commands
@@ -250,7 +361,7 @@ podman compose down --volumes
 
 Access RHDH at [http://localhost:7007](http://localhost:7007) (login as Guest).
 
-## Additional RHDH Local Guides
+## Additional Guides
 
 1. [Plugins Guide](./docs/rhdh-local-guide/plugins-guide.md) — manual plugin installation
 2. [Container Image Guide](docs/rhdh-local-guide/container-image-guide.md) — switching RHDH versions
