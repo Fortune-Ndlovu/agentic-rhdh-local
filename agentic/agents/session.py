@@ -41,6 +41,7 @@ def run_agent_loop(
         response = client.messages.create(
             model=MODEL,
             max_tokens=8192,
+            temperature=0,
             system=system,
             tools=tools,
             messages=messages,
