@@ -18,6 +18,17 @@ if TYPE_CHECKING:
 
 MODEL = "claude-sonnet-4-6"
 
+PROTECTED_FILES = {
+    "app-config.local.yaml",
+    "app-config.yaml",
+    "users.yaml",
+    "users.override.yaml",
+}
+
+
+def _is_protected_file(path: Path) -> bool:
+    return path.name in PROTECTED_FILES
+
 
 def run_agent_loop(
     client: anthropic.Anthropic,
@@ -129,6 +140,8 @@ def dispatch_tool(
 
         elif name == "write_yaml":
             path = project_root / tool_input["path"]
+            if _is_protected_file(path):
+                return {"error": f"Cannot overwrite protected config file: {tool_input['path']}. Use merge_yaml instead."}
             write_yaml(path, tool_input["content"])
             return {"success": True, "path": str(path)}
 
@@ -139,6 +152,8 @@ def dispatch_tool(
 
         elif name == "write_file":
             path = project_root / tool_input["path"]
+            if _is_protected_file(path):
+                return {"error": f"Cannot overwrite protected config file: {tool_input['path']}. Use merge_yaml instead."}
             write_text_file(path, tool_input["content"])
             return {"success": True, "path": str(path)}
 

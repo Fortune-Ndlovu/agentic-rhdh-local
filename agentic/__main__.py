@@ -101,6 +101,20 @@ def reset(
         else:
             p.unlink()
 
+    # Restore components.override.yaml as an empty Location entity so the
+    # catalog location reference in app-config.yaml doesn't break RHDH
+    components_override = catalog_dir / "components.override.yaml"
+    if not components_override.exists():
+        components_override.write_text(
+            "apiVersion: backstage.io/v1alpha1\n"
+            "kind: Location\n"
+            "metadata:\n"
+            "  name: rhdh-onboarded-components\n"
+            "  description: Auto-generated catalog entities for onboarded repositories\n"
+            "spec:\n"
+            "  targets: []\n"
+        )
+
     console.print(f"[green]Removed {len(to_delete)} generated files. Ready for a fresh run.[/green]")
 
 
