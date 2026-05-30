@@ -25,9 +25,29 @@ PROTECTED_FILES = {
     "users.override.yaml",
 }
 
+BLOCKED_KEYS_FOR_APP_CONFIG_LOCAL = {"catalog"}
+
 
 def _is_protected_file(path: Path) -> bool:
     return path.name in PROTECTED_FILES
+
+
+def _check_app_config_local_blocked_keys(path: Path, content: dict) -> str | None:
+    """Reject writes that include array-replacing keys in app-config.local.yaml.
+
+    Backstage replaces arrays on config merge, so writing catalog.locations
+    here destroys all default catalog locations from app-config.yaml.
+    """
+    if path.name != "app-config.local.yaml" or not isinstance(content, dict):
+        return None
+    blocked = BLOCKED_KEYS_FOR_APP_CONFIG_LOCAL & content.keys()
+    if blocked:
+        return (
+            f"Refused to write {blocked} to app-config.local.yaml — "
+            "Backstage replaces arrays on merge, which would destroy default "
+            "catalog locations. Add entities via components.override.yaml instead."
+        )
+    return None
 
 
 def run_agent_loop(
@@ -148,6 +168,9 @@ def dispatch_tool(
 
         elif name == "merge_yaml":
             path = project_root / tool_input["path"]
+            blocked = _check_app_config_local_blocked_keys(path, tool_input["content"])
+            if blocked:
+                return {"error": blocked}
             merge_yaml_file(path, tool_input["content"])
             return {"success": True, "path": str(path)}
 
