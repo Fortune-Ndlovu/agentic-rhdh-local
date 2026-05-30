@@ -20,7 +20,7 @@ import yaml
 
 from ..agents.client import create_client
 from ..agents.prompts import build_unified_system
-from ..agents.session import run_agent_loop
+from ..agents.session import MODEL, run_agent_loop
 from ..agents.tools import ALL_TOOLS
 from ..knowledge import PluginKnowledgeBase, extract_catalog_index
 from ..models import CatalogEntityProposal, OnboardingState, PluginProposal
@@ -255,7 +255,7 @@ def _apply_review_input(
     plugin_list = "\n".join(f"{i}. {p.title or p.plugin}" for i, p in enumerate(proposals, 1))
     try:
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=MODEL,
             max_tokens=256,
             system="You interpret plugin selection intent. Given a list of plugins and user input, return a JSON array of plugin numbers (1-indexed) to KEEP enabled. Only return the JSON array, nothing else.",
             messages=[{
