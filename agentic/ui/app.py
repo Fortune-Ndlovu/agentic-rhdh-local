@@ -114,22 +114,15 @@ def show_plugin_proposals(proposals: list[PluginProposal]) -> None:
 
     console.print(f"\n[bold]Proposed Plugins ({len(proposals)}):[/bold]")
     table = Table(box=box.ROUNDED)
-    table.add_column("#", style="dim", width=3)
+    table.add_column("#", style="bold cyan", width=3)
     table.add_column("Plugin", style="bold")
-    table.add_column("Tier", width=6)
-    table.add_column("Confidence", width=10)
     table.add_column("Category", width=14)
     table.add_column("Reason")
 
     for i, p in enumerate(proposals, 1):
-        conf_style = {"high": "green", "medium": "yellow", "low": "red"}.get(p.confidence.value, "white")
-        tier_style = {1: "green", 2: "yellow", 3: "red"}.get(p.tier, "white")
-        marker = "✓" if p.accepted else "○"
         table.add_row(
-            f"[{'green' if p.accepted else 'dim'}]{marker}[/]",
+            str(i),
             p.title or p.plugin,
-            f"[{tier_style}]T{p.tier}[/]",
-            f"[{conf_style}]{p.confidence.value}[/]",
             p.category,
             p.reason,
         )
@@ -157,42 +150,124 @@ def show_entity_proposals(proposals: list[CatalogEntityProposal]) -> None:
 def prompt_review(
     plugin_proposals: list[PluginProposal],
     entity_proposals: list[CatalogEntityProposal],
+    client: Any = None,
 ) -> tuple[list[PluginProposal], list[CatalogEntityProposal]]:
-    """Let user accept, edit, or reject proposals."""
+    """Review proposals with natural language support.
+
+    Accepts simple inputs (parsed locally) and natural language (local
+    keyword matching first, Haiku fallback for ambiguous input).
+    """
     console.print()
-    choice = Prompt.ask(
-        "[bold]  [a] Accept all  [e] Edit selections  [r] Reject all[/bold]",
-        choices=["a", "e", "r"],
-        default="a",
+    console.print("[dim]  Options: all, none, pick by row number (e.g. 1,4,5), or natural language (e.g. \"remove notifications\")[/dim]")
+    user_input = Prompt.ask(
+        "[bold]  Which plugins?[/bold]",
+        default="all",
     )
 
-    if choice == "r":
-        for p in plugin_proposals:
-            p.accepted = False
-        for e in entity_proposals:
-            e.accepted = False
-        return plugin_proposals, entity_proposals
-
-    if choice == "a":
-        return plugin_proposals, entity_proposals
-
-    console.print("\n[dim]Toggle plugins (enter numbers to toggle, 'done' to finish):[/dim]")
-    while True:
-        for i, p in enumerate(plugin_proposals, 1):
-            marker = "[green]✓[/green]" if p.accepted else "[dim]○[/dim]"
-            console.print(f"  {marker} {i}. {p.title or p.plugin}")
-
-        inp = Prompt.ask("  Toggle #", default="done").strip()
-        if inp.lower() == "done":
-            break
-        try:
-            idx = int(inp) - 1
-            if 0 <= idx < len(plugin_proposals):
-                plugin_proposals[idx].accepted = not plugin_proposals[idx].accepted
-        except ValueError:
-            continue
-
+    _apply_review_input(user_input, plugin_proposals, client)
     return plugin_proposals, entity_proposals
+
+
+def _fuzzy_match_plugin(query: str, proposals: list[PluginProposal]) -> list[int]:
+    """Match a user query fragment against plugin names/titles, returning 1-indexed matches."""
+    q = query.strip().lower()
+    matches = []
+    for i, p in enumerate(proposals, 1):
+        name = (p.title or p.plugin).lower()
+        plugin_id = p.plugin.lower()
+        if q in name or q in plugin_id or name in q or plugin_id in q:
+            matches.append(i)
+    return matches
+
+
+def _try_local_nl_parse(user_input: str, proposals: list[PluginProposal]) -> bool:
+    """Try to interpret natural language locally. Returns True if handled."""
+    normalized = user_input.strip().lower()
+
+    # "remove X" / "drop X" / "without X" / "no X"
+    remove_match = re.match(r"(?:remove|drop|without|no|disable|exclude)\s+(.+)", normalized)
+    if remove_match:
+        to_remove: set[int] = set()
+        for fragment in re.split(r"[,&]+|\band\b", remove_match.group(1)):
+            to_remove.update(_fuzzy_match_plugin(fragment, proposals))
+        if to_remove:
+            for i, p in enumerate(proposals, 1):
+                if i in to_remove:
+                    p.accepted = False
+            return True
+
+    # "only X" / "just X" / "keep X"
+    only_match = re.match(r"(?:only|just|keep)\s+(.+)", normalized)
+    if only_match:
+        to_keep: set[int] = set()
+        for fragment in re.split(r"[,&]+|\band\b", only_match.group(1)):
+            to_keep.update(_fuzzy_match_plugin(fragment, proposals))
+        if to_keep:
+            for i, p in enumerate(proposals, 1):
+                p.accepted = i in to_keep
+            return True
+
+    # "everything except X" / "all except X" / "all but X"
+    except_match = re.match(r"(?:everything|all)\s+(?:except|but|without)\s+(.+)", normalized)
+    if except_match:
+        to_exclude: set[int] = set()
+        for fragment in re.split(r"[,&]+|\band\b", except_match.group(1)):
+            to_exclude.update(_fuzzy_match_plugin(fragment, proposals))
+        if to_exclude:
+            for i, p in enumerate(proposals, 1):
+                p.accepted = i not in to_exclude
+            return True
+
+    return False
+
+
+def _apply_review_input(
+    user_input: str, proposals: list[PluginProposal], client: Any,
+) -> None:
+    normalized = user_input.strip().lower()
+
+    # Fast path: simple inputs
+    if normalized in ("all", "a", "yes", "y", ""):
+        return
+    if normalized in ("none", "r", "reject", "no", "n"):
+        for p in proposals:
+            p.accepted = False
+        return
+
+    # Number selection: "1,3,5" or "1 3 5"
+    nums = re.findall(r"\d+", normalized)
+    if nums and all(c in "0123456789, " for c in normalized):
+        selected = {int(n) for n in nums}
+        for i, p in enumerate(proposals, 1):
+            p.accepted = i in selected
+        return
+
+    # Local NL parsing (remove X, only X, everything except X)
+    if _try_local_nl_parse(user_input, proposals):
+        return
+
+    # Haiku fallback for genuinely ambiguous input
+    if client is None:
+        console.print("[yellow]Couldn't parse that — keeping all plugins.[/yellow]")
+        return
+
+    plugin_list = "\n".join(f"{i}. {p.title or p.plugin}" for i, p in enumerate(proposals, 1))
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=256,
+            system="You interpret plugin selection intent. Given a list of plugins and user input, return a JSON array of plugin numbers (1-indexed) to KEEP enabled. Only return the JSON array, nothing else.",
+            messages=[{
+                "role": "user",
+                "content": f"Plugins:\n{plugin_list}\n\nUser said: \"{user_input}\"\n\nReturn JSON array of numbers to keep:",
+            }],
+        )
+        text = response.content[0].text.strip()
+        keep_nums = set(json.loads(text))
+        for i, p in enumerate(proposals, 1):
+            p.accepted = i in keep_nums
+    except Exception:
+        console.print("[yellow]Couldn't parse that — keeping all plugins.[/yellow]")
 
 
 def show_completion(
@@ -424,7 +499,7 @@ def run_app(project_root: Path | None = None) -> None:
     show_entity_proposals(entity_proposals)
 
     # Step 7: Review
-    plugin_proposals, entity_proposals = prompt_review(plugin_proposals, entity_proposals)
+    plugin_proposals, entity_proposals = prompt_review(plugin_proposals, entity_proposals, client)
 
     accepted_plugins = [p for p in plugin_proposals if p.accepted]
     accepted_entities = [e for e in entity_proposals if e.accepted]

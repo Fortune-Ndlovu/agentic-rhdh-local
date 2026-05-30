@@ -143,6 +143,22 @@ SIGNAL_MAP: list[SignalPattern] = [
         category="Source Control",
         required_env_vars=["GITHUB_TOKEN"],
     ),
+    SignalPattern(
+        technology="github-insights",
+        file_patterns=[".github/**/*"],
+        plugins=["github-insights"],
+        confidence=Confidence.LOW,
+        category="Source Control",
+        required_env_vars=["GITHUB_TOKEN"],
+    ),
+    SignalPattern(
+        technology="security-insights",
+        file_patterns=[".github/**/*"],
+        plugins=["security-insights"],
+        confidence=Confidence.LOW,
+        category="Security",
+        required_env_vars=["GITHUB_TOKEN"],
+    ),
 
     # Existing Backstage
     SignalPattern(
@@ -176,8 +192,26 @@ SIGNAL_MAP: list[SignalPattern] = [
 ]
 
 
+BLOCKED_PLUGINS: set[str] = {
+    "github-issues",  # crashes with file: source-location entities (TypeError: URL constructor)
+}
+
+ALWAYS_RECOMMEND_PLUGINS: list[dict[str, str]] = [
+    {"plugin": "adoption-insights", "reason": "Platform usage metrics dashboard"},
+    {"plugin": "notifications", "reason": "In-app notification system for catalog changes and CI events"},
+]
+
+
 def get_signal_map() -> list[SignalPattern]:
     return SIGNAL_MAP
+
+
+def get_blocked_plugins() -> set[str]:
+    return BLOCKED_PLUGINS
+
+
+def get_always_recommend_plugins() -> list[dict[str, str]]:
+    return ALWAYS_RECOMMEND_PLUGINS
 
 
 def signals_for_technology(tech: str) -> SignalPattern | None:

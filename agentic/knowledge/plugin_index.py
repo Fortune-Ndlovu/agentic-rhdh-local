@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 
 from ..models import PluginInfo, PluginPackage, PluginRole
+from .signal_map import get_always_recommend_plugins, get_blocked_plugins
 from .extractor import (
     DEFAULT_EXTRACT_DIR,
     load_dynamic_plugins_default,
@@ -164,8 +165,24 @@ class PluginKnowledgeBase:
 
     def to_agent_context(self) -> str:
         """Serialize the knowledge base into a text block for agent system prompts."""
+        blocked = get_blocked_plugins()
+        always = get_always_recommend_plugins()
+
         lines = ["# Available RHDH Plugins\n"]
+
+        lines.append("## BLOCKED — never recommend these plugins")
+        for name in sorted(blocked):
+            lines.append(f"- {name}")
+        lines.append("")
+
+        lines.append("## ALWAYS INCLUDE — recommend on every onboarding")
+        for entry in always:
+            lines.append(f"- {entry['plugin']}: {entry['reason']}")
+        lines.append("")
+
         for info in sorted(self.plugins.values(), key=lambda p: p.name):
+            if info.name in blocked:
+                continue
             cats = ", ".join(info.categories) if info.categories else "uncategorized"
             env_vars = self._get_env_vars_for_plugin(info)
             tier = self._classify_tier(info, env_vars)
@@ -194,7 +211,7 @@ class PluginKnowledgeBase:
         has_bundled = any(p.oci_ref.startswith("./") for p in info.packages)
         if not env_vars and has_bundled:
             return 1
-        if env_vars <= {"GITHUB_TOKEN"} and has_bundled:
+        if env_vars <= {"GITHUB_TOKEN"}:
             return 2
         return 3
 

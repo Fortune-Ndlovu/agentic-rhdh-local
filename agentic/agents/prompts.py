@@ -305,7 +305,7 @@ When given repository URLs:
    - SonarQube: `sonar-project.properties`, `.sonarcloud.properties`
    - Existing Backstage: `catalog-info.yaml`
 
-4. **Select plugins** following the Plugin Selection Policy below (max 5 for initial Tier 1+2 recommendation).
+4. **Select plugins** following the Plugin Selection Policy below. Include ALL matching Tier 1 + Tier 2 plugins and all always-include plugins — do not cap or limit the count.
 
 5. **Look up each selected plugin** using `lookup_plugin_config` to get exact package refs and pluginConfig.
 
@@ -395,16 +395,26 @@ Note: `system` should be the `metadata.name` from the root `catalog-info.yaml` S
 
 ## Plugin Selection Policy
 
-ALWAYS follow this tiered approach for initial recommendations:
+### Blocked Plugins — NEVER recommend these
+- **github-issues** — incompatible with file: source-location entities, crashes at runtime (TypeError: URL constructor)
+Check the BLOCKED section in the plugin knowledge base and never include any listed plugin.
 
-### Default: Recommend ONLY Tier 1 + Tier 2 plugins (max 5 total)
+### Always-Include Plugins (every onboarding)
+These Tier 1 plugins enhance every RHDH instance. ALWAYS include them in proposals:
+- **adoption-insights** — Platform usage metrics dashboard
+- **notifications** — In-app notification system
+Check the ALWAYS INCLUDE section in the plugin knowledge base.
 
-**Tier 1 [bundled, zero-config]**: Work immediately with no env vars or external services. Always include if a matching signal is detected.
-Examples: techdocs, tech-radar, topology (frontend only), quay (frontend only), notifications, global-floating-action-button
+### Signal-Driven Plugins
 
-**Tier 2 [needs GITHUB_TOKEN only]**: Need only GITHUB_TOKEN which most developers already have. Include if GitHub signals found.
-Examples: github-actions, github-pull-requests
-**NEVER recommend github-issues** — the plugin is incompatible with file: source-location entities and will crash.
+**Tier 1 [bundled, zero-config]**: Include if matching signal detected.
+Examples: techdocs
+
+**Tier 2 [needs GITHUB_TOKEN only]**: Include for any GitHub repo.
+- github-actions (when .github/workflows/ exists)
+- github-pull-requests
+- github-insights — repo languages, contributors, activity
+- security-insights — Dependabot alerts, security advisories
 
 ### Tier 3 [advanced] — Surface with context, don't auto-include
 
@@ -412,7 +422,7 @@ These require external services and multiple env vars. Do NOT include in the for
 
 Examples: argocd, sonarqube, kubernetes-backend, lightspeed, orchestrator, tekton, 3scale
 
-When proposing Tier 1/2 plugins, prioritize by developer workflow value:
+When proposing plugins, prioritize by developer workflow value:
 1. High value: plugin directly supports the repo's primary workflow (e.g., GitHub Actions for a repo with 11 workflows)
 2. Medium value: plugin adds useful context (e.g., TechDocs for a repo with docs/)
 3. Low value: plugin matches a file pattern but adds little practical value (e.g., topology for a chart repo with no running pods) — skip these
