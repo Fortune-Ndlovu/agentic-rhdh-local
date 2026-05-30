@@ -78,6 +78,54 @@ Applying configuration...
 ╰──────────────────────────────────────────────────────────────────────╯
 ```
 
+## Agentic Pattern
+
+This project implements patterns from Anthropic's [Building Effective Agents](https://www.anthropic.com/research/building-effective-agents) guide. Rather than using a single pattern, we combine three:
+
+### 1. Augmented LLM (the building block)
+
+Each agent is an [augmented LLM](https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview) — Claude enhanced with retrieval (plugin knowledge base injected into the system prompt) and 13 local tools (GitHub API, YAML writer, health checks, etc.). The core loop is the canonical [agentic tool-use loop](https://platform.claude.com/docs/en/agents-and-tools/tool-use/how-tool-use-works): send a request, Claude responds with tool calls, execute tools locally, return results, repeat until `stop_reason != "tool_use"`.
+
+### 2. Prompt chaining (the workflow)
+
+The onboarding pipeline is a [prompt chain](https://www.anthropic.com/research/building-effective-agents) — multiple agent calls connected sequentially, where the output of one step feeds the next:
+
+```mermaid
+graph LR
+    A["Agent 1<br/><b>Scan + Propose</b><br/>Scans repos, recommends<br/>plugins, generates entities"] --> B["Agent 2<br/><b>NL Review</b><br/>Interprets user selection<br/>(lightweight, separate prompt)"]
+    B --> C["Agent 3<br/><b>Apply</b><br/>Writes config, restarts<br/>RHDH, verifies health"]
+
+    style A fill:#e8f4fd,stroke:#1a73e8
+    style B fill:#fef7e0,stroke:#f9ab00
+    style C fill:#e6f4ea,stroke:#34a853
+```
+
+| Agent | System Prompt | Model | Purpose |
+|-------|--------------|-------|---------|
+| **Scan + Propose** | Unified prompt with 4 specialist roles (scanner, recommender, entity generator, config writer) | Claude Sonnet | Scan repos via GitHub API, match signals to plugins, generate catalog entities |
+| **NL Review** | Lightweight intent parser ("return JSON array of numbers to keep") | Claude Sonnet | Interpret natural language plugin selection — only called when local parsing can't handle the input |
+| **Apply** | Same unified prompt (continues the conversation from Agent 1) | Claude Sonnet | Write override YAML, restart RHDH, diagnose errors, retry up to 3 times |
+
+### 3. Multi-role system prompt (the knowledge)
+
+Instead of separate specialist agents (which we tried first and found lossy), the unified system prompt encodes four specialist roles in one context. The agent switches roles naturally as it progresses through the pipeline — scanning like a repo scanner, recommending like a plugin expert, generating entities like a Backstage specialist, and writing config like an RHDH operator.
+
+### Why this hybrid over pure multi-agent?
+
+We started with a 4-agent orchestrator-workers pattern (scanner → recommender → entity generator → config writer) but found:
+
+- **Context loss** — the recommender didn't have the scanner's full understanding of the repo
+- **Coordination overhead** — the orchestrator spent tokens routing and summarizing between specialists
+- **Prompt chaining** gave us the sequencing benefit of multi-agent without the context handoff cost
+
+### Further reading
+
+- [Building Effective Agents](https://www.anthropic.com/research/building-effective-agents) — Anthropic's guide to agent architecture patterns (prompt chaining, routing, orchestrator-workers)
+- [Tool Use Overview](https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview) — How Claude tool use works
+- [How Tool Use Works](https://platform.claude.com/docs/en/agents-and-tools/tool-use/how-tool-use-works) — The agentic loop in detail
+- [Multi-Agent Research System](https://www.anthropic.com/engineering/multi-agent-research-system) — Anthropic's case study on when multi-agent IS warranted
+- [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) — Anthropic's SDK for building agents
+
 ## Architecture
 
 A unified agent powered by Claude (via Vertex AI or direct API), using a tool-use loop to scan repos, recommend plugins, generate catalog entities, and write config — all in a single conversation turn.
