@@ -7,14 +7,26 @@ from pathlib import Path
 
 
 def detect_compose_command(project_root: Path | None = None) -> list[str]:
-    """Detect whether to use 'podman compose' or 'docker compose'."""
+    """Detect whether to use 'podman compose' or 'docker compose'.
+
+    Automatically includes the developer-lightspeed compose overlay
+    when it exists in the project root.
+    """
     for cmd in (["podman", "compose"], ["docker", "compose"], ["docker-compose"]):
         try:
             subprocess.run([*cmd, "version"], capture_output=True, check=True)
-            return cmd
+            break
         except (FileNotFoundError, subprocess.CalledProcessError):
             continue
-    raise RuntimeError("No compose command found. Install podman-compose or docker-compose.")
+    else:
+        raise RuntimeError("No compose command found. Install podman-compose or docker-compose.")
+
+    if project_root:
+        lightspeed_compose = project_root / "developer-lightspeed" / "compose.yaml"
+        if lightspeed_compose.exists():
+            return [*cmd, "-f", "compose.yaml", "-f", str(lightspeed_compose.relative_to(project_root))]
+
+    return cmd
 
 
 def compose_run(
