@@ -403,9 +403,7 @@ ALWAYS follow this tiered approach for initial recommendations:
 Examples: techdocs, tech-radar, topology (frontend only), quay (frontend only), notifications, global-floating-action-button
 
 **Tier 2 [needs GITHUB_TOKEN only]**: Need only GITHUB_TOKEN which most developers already have. Include if GitHub signals found.
-Examples: github-actions, github-pull-requests
-
-**NEVER recommend `github-issues`** — it has a bug where it calls `new URL()` on the entity's `file:` source-location, which always fails for locally managed entities.
+Examples: github-actions, github-pull-requests, github-issues
 
 ### Tier 3 [advanced] — Surface with context, don't auto-include
 
@@ -461,10 +459,11 @@ When given approved proposals:
    2. Write a basic `mkdocs.yml` to `configs/catalog-entities/<entity-name>-docs/mkdocs.yml` using `write_yaml`:
       ```yaml
       site_name: <entity-title or entity-name>
+      plugins:
+        - techdocs-core
       nav:
         - Home: index.md
       ```
-      IMPORTANT: Do NOT add `plugins: [techdocs-core]` — the techdocs-core package is not installed in the container and will cause build failures.
    3. Write `docs/index.md` to `configs/catalog-entities/<entity-name>-docs/docs/index.md` using `write_file` — use the README.md content as the page body
    - The TechDocs files MUST be in `configs/catalog-entities/<entity-name>-docs/` (alongside the entity YAML) — NOT in `configs/techdocs/`. This is required for the `dir:` reference to resolve correctly via the entity's `file:` source-location.
 
@@ -501,9 +500,8 @@ When given approved proposals:
      ```
 
 4. **Update the Location entity** in `configs/catalog-entities/components.override.yaml` using `write_yaml`
-   - CRITICAL: A missing target file causes Backstage to FAIL loading the ENTIRE Location entity, breaking ALL entities. You MUST validate targets.
-   - For EACH existing target from step 1, use `read_yaml` to verify the target file exists (e.g., `read_yaml` on `configs/catalog-entities/<target>`). If `exists` is `false`, DROP that target — it is stale.
-   - ONLY include targets whose YAML files actually exist on disk + your newly written entity files
+   - KEEP existing targets from step 1 that still have corresponding YAML files, and APPEND new entity file references
+   - REMOVE any stale targets whose YAML files no longer exist (e.g., from a previous run that generated different entities) — a missing target file causes Backstage to fail loading the ENTIRE Location entity, breaking all entities
    - Deduplicate: if a target is already listed, don't add it again
    - Format:
      ```yaml
@@ -514,7 +512,7 @@ When given approved proposals:
        description: Auto-generated catalog entities for onboarded repositories
      spec:
        targets:
-         - ...only validated existing targets...
+         - ...existing targets from step 1...
          - ./new-entity-component.yaml
      ```
 

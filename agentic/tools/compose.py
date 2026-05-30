@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable
 from pathlib import Path
 
 
@@ -40,39 +39,20 @@ def compose_run(
     return subprocess.run(args, **kwargs)
 
 
-def restart_rhdh(
-    project_root: Path,
-    on_progress: Callable[[str, str], None] | None = None,
-) -> tuple[bool, str]:
-    """Restart RHDH by cycling containers so the plugin installer re-runs.
-
-    on_progress receives (phase, message) for UI feedback.
-    """
+def restart_rhdh(project_root: Path) -> tuple[bool, str]:
+    """Restart RHDH by cycling containers so the plugin installer re-runs."""
     compose = detect_compose_command(project_root)
-
-    if on_progress:
-        on_progress("stopping", "Stopping containers…")
     down = subprocess.run(
         [*compose, "down"],
         capture_output=True, text=True, timeout=60,
         cwd=str(project_root),
     )
-
-    if on_progress:
-        on_progress("starting", "Starting containers…")
     up = subprocess.run(
         [*compose, "up", "-d"],
         capture_output=True, text=True, timeout=180,
         cwd=str(project_root),
     )
-
     success = up.returncode == 0
-    if on_progress:
-        if success:
-            on_progress("done", "Containers started")
-        else:
-            on_progress("error", f"compose up failed: {up.stderr[:200]}")
-
     output = down.stdout + down.stderr + up.stdout + up.stderr
     return success, output
 

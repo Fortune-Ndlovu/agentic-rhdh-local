@@ -145,15 +145,6 @@ agentic-rhdh --help
 agentic-rhdh --project-dir /path/to/agentic-rhdh-local
 ```
 
-### Reset
-
-Remove all generated entities, plugin overrides, and backups to start fresh:
-
-```sh
-agentic-rhdh reset       # preview and confirm
-agentic-rhdh reset -y    # skip confirmation
-```
-
 ## Project Structure
 
 ```

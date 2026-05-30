@@ -18,37 +18,6 @@ if TYPE_CHECKING:
 
 MODEL = "claude-sonnet-4-6"
 
-PROTECTED_FILES = {
-    "app-config.local.yaml",
-    "app-config.yaml",
-    "users.yaml",
-    "users.override.yaml",
-}
-
-BLOCKED_KEYS_FOR_APP_CONFIG_LOCAL = {"catalog"}
-
-
-def _is_protected_file(path: Path) -> bool:
-    return path.name in PROTECTED_FILES
-
-
-def _check_app_config_local_blocked_keys(path: Path, content: dict) -> str | None:
-    """Reject writes that include array-replacing keys in app-config.local.yaml.
-
-    Backstage replaces arrays on config merge, so writing catalog.locations
-    here destroys all default catalog locations from app-config.yaml.
-    """
-    if path.name != "app-config.local.yaml" or not isinstance(content, dict):
-        return None
-    blocked = BLOCKED_KEYS_FOR_APP_CONFIG_LOCAL & content.keys()
-    if blocked:
-        return (
-            f"Refused to write {blocked} to app-config.local.yaml — "
-            "Backstage replaces arrays on merge, which would destroy default "
-            "catalog locations. Add entities via components.override.yaml instead."
-        )
-    return None
-
 
 def run_agent_loop(
     client: anthropic.Anthropic,
@@ -72,7 +41,6 @@ def run_agent_loop(
         response = client.messages.create(
             model=MODEL,
             max_tokens=8192,
-            temperature=0,
             system=system,
             tools=tools,
             messages=messages,
@@ -96,7 +64,7 @@ def run_agent_loop(
                     if on_event:
                         on_event("tool_use", {"tool": block.name, "input": block.input})
 
-                    result = dispatch_tool(block.name, block.input, project_root, knowledge_base, on_event)
+                    result = dispatch_tool(block.name, block.input, project_root, knowledge_base)
 
                     if on_event:
                         on_event("tool_result", {"tool": block.name, "result": result})
@@ -119,7 +87,6 @@ def dispatch_tool(
     tool_input: dict[str, Any],
     project_root: Path,
     knowledge_base: PluginKnowledgeBase | None = None,
-    on_event: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Execute a tool locally and return the result."""
     try:
@@ -161,49 +128,26 @@ def dispatch_tool(
 
         elif name == "write_yaml":
             path = project_root / tool_input["path"]
-            if _is_protected_file(path):
-                return {"error": f"Cannot overwrite protected config file: {tool_input['path']}. Use merge_yaml instead."}
             write_yaml(path, tool_input["content"])
             return {"success": True, "path": str(path)}
 
         elif name == "merge_yaml":
             path = project_root / tool_input["path"]
-            blocked = _check_app_config_local_blocked_keys(path, tool_input["content"])
-            if blocked:
-                return {"error": blocked}
             merge_yaml_file(path, tool_input["content"])
             return {"success": True, "path": str(path)}
 
         elif name == "write_file":
             path = project_root / tool_input["path"]
-            if _is_protected_file(path):
-                return {"error": f"Cannot overwrite protected config file: {tool_input['path']}. Use merge_yaml instead."}
             write_text_file(path, tool_input["content"])
             return {"success": True, "path": str(path)}
 
         elif name == "restart_rhdh":
-            def _on_restart_progress(phase: str, message: str) -> None:
-                if on_event:
-                    on_event("restart_progress", {"phase": phase, "message": message})
-
-            success, output = restart_rhdh(project_root, on_progress=_on_restart_progress)
+            success, output = restart_rhdh(project_root)
             return {"success": success, "output": output}
 
         elif name == "check_rhdh_health":
             if tool_input.get("wait", False):
-                def _on_health_poll(attempt: int, elapsed: int, hr: HealthResult) -> None:
-                    if on_event:
-                        on_event("health_poll", {
-                            "attempt": attempt,
-                            "elapsed": elapsed,
-                            "healthy": hr.healthy,
-                            "message": hr.message,
-                        })
-
-                result = wait_for_healthy(
-                    max_wait=tool_input.get("max_wait", 120),
-                    on_poll=_on_health_poll,
-                )
+                result = wait_for_healthy(max_wait=tool_input.get("max_wait", 120))
             else:
                 result = check_rhdh_health()
             return {

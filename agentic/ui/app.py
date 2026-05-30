@@ -88,23 +88,6 @@ def _on_event(event_type: str, event_data: dict[str, Any]) -> None:
             console.print(f"  [dim]│   Looking up {tool_input.get('plugin_name', '')}...[/dim]")
         elif tool == "diagnose_plugin_errors":
             console.print(f"  [dim]├── Diagnosing errors...[/dim]")
-    elif event_type == "restart_progress":
-        phase = event_data.get("phase", "")
-        message = event_data.get("message", "")
-        if phase == "error":
-            console.print(f"  [red]│   ✗ {message}[/red]")
-        elif phase == "done":
-            console.print(f"  [green]│   ✓ {message}[/green]")
-        else:
-            console.print(f"  [dim]│   {message}[/dim]")
-
-    elif event_type == "health_poll":
-        elapsed = event_data.get("elapsed", 0)
-        healthy = event_data.get("healthy", False)
-        message = event_data.get("message", "")
-        if not healthy:
-            console.print(f"  [dim]│   Waiting for RHDH ({elapsed}s) — {message}[/dim]")
-
     elif event_type == "tool_result":
         tool = event_data.get("tool", "")
         result = event_data.get("result", {})
@@ -191,25 +174,20 @@ def prompt_review(
         return plugin_proposals, entity_proposals
 
     console.print("\n[dim]Toggle plugins (enter numbers to toggle, 'done' to finish):[/dim]")
-    for i, p in enumerate(plugin_proposals, 1):
-        marker = "[green]✓[/green]" if p.accepted else "[dim]○[/dim]"
-        console.print(f"  {marker} {i}. {p.title or p.plugin}")
-
     while True:
+        for i, p in enumerate(plugin_proposals, 1):
+            marker = "[green]✓[/green]" if p.accepted else "[dim]○[/dim]"
+            console.print(f"  {marker} {i}. {p.title or p.plugin}")
+
         inp = Prompt.ask("  Toggle #", default="done").strip()
         if inp.lower() == "done":
             break
         try:
             idx = int(inp) - 1
             if 0 <= idx < len(plugin_proposals):
-                p = plugin_proposals[idx]
-                p.accepted = not p.accepted
-                marker = "[green]✓[/green]" if p.accepted else "[dim]○[/dim]"
-                console.print(f"  {marker} {idx + 1}. {p.title or p.plugin}")
-            else:
-                console.print(f"  [red]Invalid: enter 1-{len(plugin_proposals)}[/red]")
+                plugin_proposals[idx].accepted = not plugin_proposals[idx].accepted
         except ValueError:
-            console.print(f"  [red]Invalid: enter a number or 'done'[/red]")
+            continue
 
     return plugin_proposals, entity_proposals
 

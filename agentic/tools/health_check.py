@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -49,22 +48,13 @@ def wait_for_healthy(
     base_url: str = RHDH_BASE_URL,
     max_wait: int = 120,
     interval: int = 5,
-    on_poll: Callable[[int, int, HealthResult], None] | None = None,
 ) -> HealthResult:
-    """Poll RHDH until healthy or timeout.
-
-    on_poll receives (attempt, elapsed_seconds, last_result) each iteration.
-    """
+    """Poll RHDH until healthy or timeout."""
     start = time.time()
     last_result = HealthResult(healthy=False, message="Never checked")
-    attempt = 0
 
     while time.time() - start < max_wait:
-        attempt += 1
         last_result = check_rhdh_health(base_url)
-        elapsed = int(time.time() - start)
-        if on_poll:
-            on_poll(attempt, elapsed, last_result)
         if last_result.healthy:
             return last_result
         time.sleep(interval)
