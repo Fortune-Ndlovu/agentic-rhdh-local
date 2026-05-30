@@ -12,6 +12,7 @@ app = typer.Typer(
     name="agentic-rhdh",
     help="Multi-agent CLI for automated RHDH onboarding",
     no_args_is_help=False,
+    invoke_without_command=True,
 )
 
 console = Console()
@@ -26,31 +27,32 @@ KEEP_FILES = {
 }
 
 
-@app.command()
+@app.callback()
 def main(
+    ctx: typer.Context,
     project_dir: Path = typer.Option(
         Path.cwd(),
         "--project-dir", "-p",
         help="Path to the agentic-rhdh-local project directory",
     ),
 ) -> None:
-    """Scan repos, propose plugins and catalog entities, configure RHDH automatically."""
-    run_app(project_root=project_dir)
+    """Multi-agent CLI for automated RHDH onboarding."""
+    ctx.ensure_object(dict)
+    ctx.obj["project_dir"] = project_dir
+    if ctx.invoked_subcommand is None:
+        run_app(project_root=project_dir)
 
 
 @app.command()
 def reset(
-    project_dir: Path = typer.Option(
-        Path.cwd(),
-        "--project-dir", "-p",
-        help="Path to the agentic-rhdh-local project directory",
-    ),
+    ctx: typer.Context,
     yes: bool = typer.Option(
         False, "--yes", "-y",
         help="Skip confirmation prompt",
     ),
 ) -> None:
     """Remove all generated entities, plugin overrides, and backups for a fresh start."""
+    project_dir: Path = ctx.obj["project_dir"]
     catalog_dir = project_dir / "configs" / "catalog-entities"
     plugins_dir = project_dir / "configs" / "dynamic-plugins"
 
