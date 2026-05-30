@@ -174,20 +174,25 @@ def prompt_review(
         return plugin_proposals, entity_proposals
 
     console.print("\n[dim]Toggle plugins (enter numbers to toggle, 'done' to finish):[/dim]")
-    while True:
-        for i, p in enumerate(plugin_proposals, 1):
-            marker = "[green]✓[/green]" if p.accepted else "[dim]○[/dim]"
-            console.print(f"  {marker} {i}. {p.title or p.plugin}")
+    for i, p in enumerate(plugin_proposals, 1):
+        marker = "[green]✓[/green]" if p.accepted else "[dim]○[/dim]"
+        console.print(f"  {marker} {i}. {p.title or p.plugin}")
 
+    while True:
         inp = Prompt.ask("  Toggle #", default="done").strip()
         if inp.lower() == "done":
             break
         try:
             idx = int(inp) - 1
             if 0 <= idx < len(plugin_proposals):
-                plugin_proposals[idx].accepted = not plugin_proposals[idx].accepted
+                p = plugin_proposals[idx]
+                p.accepted = not p.accepted
+                marker = "[green]✓[/green]" if p.accepted else "[dim]○[/dim]"
+                console.print(f"  {marker} {idx + 1}. {p.title or p.plugin}")
+            else:
+                console.print(f"  [red]Invalid: enter 1-{len(plugin_proposals)}[/red]")
         except ValueError:
-            continue
+            console.print(f"  [red]Invalid: enter a number or 'done'[/red]")
 
     return plugin_proposals, entity_proposals
 
