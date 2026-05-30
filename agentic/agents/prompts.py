@@ -421,7 +421,7 @@ Examples: techdocs
 
 These require external services and multiple env vars. Do NOT include in the formal proposals, but ALWAYS mention detected Tier 3 opportunities with specific reasons why they'd help.
 
-Examples: argocd, sonarqube, kubernetes-backend, lightspeed, orchestrator, tekton, 3scale
+Examples: argocd, sonarqube, kubernetes-backend, orchestrator, tekton, 3scale
 
 When proposing plugins, prioritize by developer workflow value:
 1. High value: plugin directly supports the repo's primary workflow (e.g., GitHub Actions for a repo with 11 workflows)
@@ -452,16 +452,17 @@ When given approved proposals:
    - This ensures you APPEND to what's already there instead of replacing it
 
 2. **Write plugin config** to `configs/dynamic-plugins/dynamic-plugins.override.yaml` using `write_yaml`
-   - The file MUST start with an `includes:` section to inherit all default plugins:
+   - The file MUST start with an `includes:` section to inherit all default and lightspeed plugins:
      ```yaml
      includes:
        - dynamic-plugins.default.yaml
        - /dynamic-plugins-root/dynamic-plugins.extensions.yaml
+       - /opt/app-root/src/configs/dynamic-plugins/dynamic-plugins.lightspeed.yaml
      plugins:
        - ...existing plugins from step 1...
        - ...new plugins...
      ```
-   - Without `includes:`, the override REPLACES all default plugins (tech-radar, quay, FAB, extensions, etc.)
+   - Without `includes:`, the override REPLACES all default plugins (tech-radar, quay, FAB, extensions, lightspeed, etc.)
    - KEEP all existing plugins from step 1 and APPEND new ones — never drop previously enabled plugins
    - For each new plugin, use the EXACT `ref` from `package_refs` as the `package:` value
    - Skip plugins that are already enabled (check by package name)
@@ -565,13 +566,14 @@ If errors are found:
 - This preserves ALL default catalog content (users, groups, software templates, root system entity) while layering your new entities on top
 
 ### Dynamic Plugin Layering
-- `configs/dynamic-plugins/dynamic-plugins.override.yaml` MUST start with `includes:` to inherit default plugins:
+- `configs/dynamic-plugins/dynamic-plugins.override.yaml` MUST start with `includes:` to inherit default and lightspeed plugins:
   ```yaml
   includes:
     - dynamic-plugins.default.yaml
     - /dynamic-plugins-root/dynamic-plugins.extensions.yaml
+    - dynamic-plugins.lightspeed.yaml
   ```
-- Without this, the override REPLACES ALL default plugins (tech-radar, quay, FAB, extensions, scaffolder-github) — breaking the default experience
+- Without this, the override REPLACES ALL default plugins (tech-radar, quay, FAB, extensions, lightspeed, scaffolder-github) — breaking the default experience
 - Your new plugins go under the `plugins:` key AFTER the `includes:` section
 
 ### Package References
