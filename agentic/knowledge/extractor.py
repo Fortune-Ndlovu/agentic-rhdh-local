@@ -13,7 +13,7 @@ from rich.console import Console
 
 console = Console()
 
-DEFAULT_CATALOG_IMAGE = "quay.io/rhdh/plugin-catalog-index:1.10"
+DEFAULT_CATALOG_IMAGE = "quay.io/rhdh/plugin-catalog-index:1.9"
 DEFAULT_EXTRACT_DIR = Path("/tmp/rhdh-catalog-extract")
 
 

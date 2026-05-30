@@ -461,11 +461,10 @@ When given approved proposals:
    2. Write a basic `mkdocs.yml` to `configs/catalog-entities/<entity-name>-docs/mkdocs.yml` using `write_yaml`:
       ```yaml
       site_name: <entity-title or entity-name>
-      plugins:
-        - techdocs-core
       nav:
         - Home: index.md
       ```
+      IMPORTANT: Do NOT add `plugins: [techdocs-core]` — the techdocs-core package is not installed in the container and will cause build failures.
    3. Write `docs/index.md` to `configs/catalog-entities/<entity-name>-docs/docs/index.md` using `write_file` — use the README.md content as the page body
    - The TechDocs files MUST be in `configs/catalog-entities/<entity-name>-docs/` (alongside the entity YAML) — NOT in `configs/techdocs/`. This is required for the `dir:` reference to resolve correctly via the entity's `file:` source-location.
 
