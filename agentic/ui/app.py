@@ -88,6 +88,23 @@ def _on_event(event_type: str, event_data: dict[str, Any]) -> None:
             console.print(f"  [dim]│   Looking up {tool_input.get('plugin_name', '')}...[/dim]")
         elif tool == "diagnose_plugin_errors":
             console.print(f"  [dim]├── Diagnosing errors...[/dim]")
+    elif event_type == "restart_progress":
+        phase = event_data.get("phase", "")
+        message = event_data.get("message", "")
+        if phase == "error":
+            console.print(f"  [red]│   ✗ {message}[/red]")
+        elif phase == "done":
+            console.print(f"  [green]│   ✓ {message}[/green]")
+        else:
+            console.print(f"  [dim]│   {message}[/dim]")
+
+    elif event_type == "health_poll":
+        elapsed = event_data.get("elapsed", 0)
+        healthy = event_data.get("healthy", False)
+        message = event_data.get("message", "")
+        if not healthy:
+            console.print(f"  [dim]│   Waiting for RHDH ({elapsed}s) — {message}[/dim]")
+
     elif event_type == "tool_result":
         tool = event_data.get("tool", "")
         result = event_data.get("result", {})

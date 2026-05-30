@@ -76,7 +76,7 @@ def run_agent_loop(
                     if on_event:
                         on_event("tool_use", {"tool": block.name, "input": block.input})
 
-                    result = dispatch_tool(block.name, block.input, project_root, knowledge_base)
+                    result = dispatch_tool(block.name, block.input, project_root, knowledge_base, on_event)
 
                     if on_event:
                         on_event("tool_result", {"tool": block.name, "result": result})
@@ -99,6 +99,7 @@ def dispatch_tool(
     tool_input: dict[str, Any],
     project_root: Path,
     knowledge_base: PluginKnowledgeBase | None = None,
+    on_event: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Execute a tool locally and return the result."""
     try:
@@ -158,12 +159,28 @@ def dispatch_tool(
             return {"success": True, "path": str(path)}
 
         elif name == "restart_rhdh":
-            success, output = restart_rhdh(project_root)
+            def _on_restart_progress(phase: str, message: str) -> None:
+                if on_event:
+                    on_event("restart_progress", {"phase": phase, "message": message})
+
+            success, output = restart_rhdh(project_root, on_progress=_on_restart_progress)
             return {"success": success, "output": output}
 
         elif name == "check_rhdh_health":
             if tool_input.get("wait", False):
-                result = wait_for_healthy(max_wait=tool_input.get("max_wait", 120))
+                def _on_health_poll(attempt: int, elapsed: int, hr: HealthResult) -> None:
+                    if on_event:
+                        on_event("health_poll", {
+                            "attempt": attempt,
+                            "elapsed": elapsed,
+                            "healthy": hr.healthy,
+                            "message": hr.message,
+                        })
+
+                result = wait_for_healthy(
+                    max_wait=tool_input.get("max_wait", 120),
+                    on_poll=_on_health_poll,
+                )
             else:
                 result = check_rhdh_health()
             return {

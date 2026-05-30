@@ -24,6 +24,8 @@ KEEP_FILES = {
     "components.override.example.yaml",
     "dynamic-plugins.yaml",
     "dynamic-plugins.override.example.yaml",
+    "app-config.yaml",
+    "app-config.local.example.yaml",
 }
 
 
@@ -55,6 +57,7 @@ def reset(
     project_dir: Path = ctx.obj["project_dir"]
     catalog_dir = project_dir / "configs" / "catalog-entities"
     plugins_dir = project_dir / "configs" / "dynamic-plugins"
+    appconfig_dir = project_dir / "configs" / "app-config"
 
     to_delete: list[Path] = []
 
@@ -78,6 +81,16 @@ def reset(
             if item.name in KEEP_FILES:
                 continue
             if item.name == "dynamic-plugins.override.yaml":
+                to_delete.append(item)
+            elif item.name.endswith(".bak"):
+                to_delete.append(item)
+
+    # App config: agent-generated app-config.local.yaml, *.bak
+    if appconfig_dir.exists():
+        for item in appconfig_dir.iterdir():
+            if item.name in KEEP_FILES:
+                continue
+            if item.name == "app-config.local.yaml":
                 to_delete.append(item)
             elif item.name.endswith(".bak"):
                 to_delete.append(item)
