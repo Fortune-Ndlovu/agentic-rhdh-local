@@ -46,3 +46,11 @@ dist/
 build/
 .venv/
 extracted-catalog/
+
+default.env
+
+# Agentic tool generated files
+*.bak
+/configs/catalog-entities/*-component.yaml
+/configs/catalog-entities/*-docs/
+/community-plugins/

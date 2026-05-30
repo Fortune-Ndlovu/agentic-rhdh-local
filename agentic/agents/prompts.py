@@ -403,7 +403,9 @@ ALWAYS follow this tiered approach for initial recommendations:
 Examples: techdocs, tech-radar, topology (frontend only), quay (frontend only), notifications, global-floating-action-button
 
 **Tier 2 [needs GITHUB_TOKEN only]**: Need only GITHUB_TOKEN which most developers already have. Include if GitHub signals found.
-Examples: github-actions, github-pull-requests, github-issues
+Examples: github-actions, github-pull-requests
+
+**NEVER recommend `github-issues`** — it has a bug where it calls `new URL()` on the entity's `file:` source-location, which always fails for locally managed entities.
 
 ### Tier 3 [advanced] — Surface with context, don't auto-include
 
@@ -500,8 +502,9 @@ When given approved proposals:
      ```
 
 4. **Update the Location entity** in `configs/catalog-entities/components.override.yaml` using `write_yaml`
-   - KEEP existing targets from step 1 that still have corresponding YAML files, and APPEND new entity file references
-   - REMOVE any stale targets whose YAML files no longer exist (e.g., from a previous run that generated different entities) — a missing target file causes Backstage to fail loading the ENTIRE Location entity, breaking all entities
+   - CRITICAL: A missing target file causes Backstage to FAIL loading the ENTIRE Location entity, breaking ALL entities. You MUST validate targets.
+   - For EACH existing target from step 1, use `read_yaml` to verify the target file exists (e.g., `read_yaml` on `configs/catalog-entities/<target>`). If `exists` is `false`, DROP that target — it is stale.
+   - ONLY include targets whose YAML files actually exist on disk + your newly written entity files
    - Deduplicate: if a target is already listed, don't add it again
    - Format:
      ```yaml
@@ -512,7 +515,7 @@ When given approved proposals:
        description: Auto-generated catalog entities for onboarded repositories
      spec:
        targets:
-         - ...existing targets from step 1...
+         - ...only validated existing targets...
          - ./new-entity-component.yaml
      ```
 
