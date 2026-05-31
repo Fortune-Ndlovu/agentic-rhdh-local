@@ -29,22 +29,30 @@ def run_agent_loop(
     max_turns: int = 25,
     knowledge_base: PluginKnowledgeBase | None = None,
 ) -> list[dict[str, Any]]:
-    """Run the Messages API tool-use loop until the agent finishes.
+    """Run the Messages API tool-use loop with streaming until the agent finishes.
 
     Appends to `messages` in place (maintains conversation history across calls).
     Returns the content blocks from the final assistant response.
     """
+    assistant_content: list[dict[str, Any]] = []
+
     for turn in range(max_turns):
         if on_event:
             on_event("turn_start", {"turn": turn})
 
-        response = client.messages.create(
+        with client.messages.stream(
             model=MODEL,
             max_tokens=8192,
             system=system,
             tools=tools,
             messages=messages,
-        )
+        ) as stream:
+            for event in stream:
+                if event.type == "content_block_delta":
+                    if hasattr(event.delta, "text") and on_event:
+                        on_event("text_delta", {"text": event.delta.text})
+
+            response = stream.get_final_message()
 
         assistant_content = _serialize_content(response.content)
         messages.append({"role": "assistant", "content": assistant_content})
@@ -52,7 +60,7 @@ def run_agent_loop(
         if on_event:
             for block in response.content:
                 if hasattr(block, "text"):
-                    on_event("agent_text", {"text": block.text})
+                    on_event("text_done", {"text": block.text})
 
         if response.stop_reason == "end_turn":
             return assistant_content
@@ -62,12 +70,12 @@ def run_agent_loop(
             for block in response.content:
                 if block.type == "tool_use":
                     if on_event:
-                        on_event("tool_use", {"tool": block.name, "input": block.input})
+                        on_event("tool_start", {"tool": block.name, "input": block.input})
 
                     result = dispatch_tool(block.name, block.input, project_root, knowledge_base)
 
                     if on_event:
-                        on_event("tool_result", {"tool": block.name, "result": result})
+                        on_event("tool_end", {"tool": block.name, "result": result})
 
                     tool_results.append({
                         "type": "tool_result",

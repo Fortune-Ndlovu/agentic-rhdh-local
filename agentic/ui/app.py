@@ -24,6 +24,7 @@ from ..agents.session import MODEL, run_agent_loop
 from ..agents.tools import ALL_TOOLS
 from ..knowledge import PluginKnowledgeBase, extract_catalog_index
 from ..models import CatalogEntityProposal, OnboardingState, PluginProposal
+from .progress import AgentProgressDisplay
 
 console = Console()
 
@@ -67,44 +68,24 @@ def _validate_repo_url(url: str) -> bool:
     return bool(re.match(r"https?://github\.com/[\w.-]+/[\w.-]+/?$", url))
 
 
+_progress: AgentProgressDisplay | None = None
+
+
 def _on_event(event_type: str, event_data: dict[str, Any]) -> None:
-    """Handle events from the agent loop for progress display."""
-    if event_type == "tool_use":
-        tool = event_data.get("tool", "")
-        tool_input = event_data.get("input", {})
-        if tool == "scan_repo_tree":
-            console.print(f"  [dim]├── Scanning {tool_input.get('owner', '')}/{tool_input.get('repo', '')}...[/dim]")
-        elif tool == "read_repo_file":
-            console.print(f"  [dim]│   Reading {tool_input.get('path', '')}...[/dim]")
-        elif tool == "get_repo_languages":
-            console.print(f"  [dim]│   Checking languages...[/dim]")
-        elif tool == "read_yaml":
-            console.print(f"  [dim]├── Reading {tool_input.get('path', '')}...[/dim]")
-        elif tool == "write_file":
-            console.print(f"  [dim]├── Writing {tool_input.get('path', '')}...[/dim]")
-        elif tool in ("write_yaml", "merge_yaml"):
-            console.print(f"  [dim]├── Writing {tool_input.get('path', '')}...[/dim]")
-        elif tool == "restart_rhdh":
-            console.print(f"  [dim]├── Restarting RHDH...[/dim]")
-        elif tool == "check_rhdh_health":
-            console.print(f"  [dim]├── Checking health...[/dim]")
-        elif tool == "lookup_plugin_config":
-            console.print(f"  [dim]│   Looking up {tool_input.get('plugin_name', '')}...[/dim]")
-        elif tool == "diagnose_plugin_errors":
-            console.print(f"  [dim]├── Diagnosing errors...[/dim]")
-    elif event_type == "tool_result":
-        tool = event_data.get("tool", "")
-        result = event_data.get("result", {})
-        if tool == "scan_repo_tree":
-            console.print(f"  [dim]│   Found {result.get('count', 0)} files[/dim]")
-        elif tool == "check_rhdh_health":
-            if result.get("healthy"):
-                console.print(f"  [green]├── Health check passed ✓[/green]")
-            else:
-                console.print(f"  [yellow]├── Health check: {result.get('message', 'unhealthy')}[/yellow]")
-        elif tool in ("write_yaml", "merge_yaml", "write_file"):
-            if result.get("success"):
-                console.print(f"  [green]│   ✓[/green]")
+    """Delegate agent loop events to the progress display."""
+    if _progress is None:
+        return
+
+    if event_type == "turn_start":
+        _progress.on_turn_start(event_data.get("turn", 0))
+    elif event_type == "text_delta":
+        _progress.on_text_delta(event_data.get("text", ""))
+    elif event_type == "text_done":
+        _progress.on_text_done(event_data.get("text", ""))
+    elif event_type == "tool_start":
+        _progress.on_tool_start(event_data.get("tool", ""), event_data.get("input", {}))
+    elif event_type == "tool_end":
+        _progress.on_tool_end(event_data.get("tool", ""), event_data.get("result", {}))
 
 
 def show_plugin_proposals(proposals: list[PluginProposal]) -> None:
@@ -569,7 +550,10 @@ def run_app(project_root: Path | None = None) -> None:
     system_prompt = build_unified_system(knowledge_context, owner=owner)
 
     # Step 5: Scan + Propose
-    console.print("\n[bold]Scanning repositories...[/bold]")
+    global _progress
+    _progress = AgentProgressDisplay(console)
+    _progress.start()
+
     repo_list = "\n".join(f"- {url}" for url in repos)
     messages: list[dict[str, Any]] = [
         {"role": "user", "content": f"Scan these repositories and propose plugins and catalog entities:\n{repo_list}"},
@@ -586,8 +570,13 @@ def run_app(project_root: Path | None = None) -> None:
             knowledge_base=kb,
         )
     except Exception as e:
+        _progress.stop()
+        _progress = None
         console.print(f"\n[red]Agent failed: {e}[/red]")
         return
+
+    _progress.stop()
+    _progress = None
 
     # Step 6: Parse and display proposals
     plugin_proposals, entity_proposals = parse_proposals_from_response(response_content)
@@ -616,7 +605,12 @@ def run_app(project_root: Path | None = None) -> None:
     _save_baseline(project_root)
 
     # Step 8: Apply
-    console.print("\n[bold]Applying configuration...[/bold]")
+    _progress = AgentProgressDisplay(console)
+    _progress.phase = "apply"
+    _progress.specialist = "Config Writer Agent"
+    _progress.specialist_icon = "✍️"
+    _progress.start()
+
     apply_msg = (
         "Apply these approved proposals. Write the config files, restart RHDH, and verify health.\n\n"
         f"Plugins:\n```json\n{json.dumps([p.model_dump() for p in accepted_plugins], indent=2, default=str)}\n```\n\n"
@@ -635,8 +629,13 @@ def run_app(project_root: Path | None = None) -> None:
             knowledge_base=kb,
         )
     except Exception as e:
+        _progress.stop()
+        _progress = None
         console.print(f"\n[red]Apply phase failed: {e}[/red]")
         return
+
+    _progress.stop()
+    _progress = None
 
     # Step 9: Report
     all_env_vars = []
