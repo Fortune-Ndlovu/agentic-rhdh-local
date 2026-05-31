@@ -611,12 +611,11 @@ def run_app(project_root: Path | None = None) -> None:
         response_content = run_agent_loop(
             client=client,
             system=system_prompt,
-            tools=ALL_TOOLS,
+            tools=[],
             messages=messages,
             project_root=project_root,
             on_event=_on_event,
-            knowledge_base=kb,
-            max_turns=3,
+            max_turns=1,
         )
     except Exception as e:
         _progress.stop()
