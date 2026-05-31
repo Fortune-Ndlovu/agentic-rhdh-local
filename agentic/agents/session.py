@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -40,10 +41,14 @@ def run_agent_loop(
         if on_event:
             on_event("turn_start", {"turn": turn})
 
+        system_with_cache = [
+            {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}},
+        ]
+
         with client.messages.stream(
             model=MODEL,
             max_tokens=8192,
-            system=system,
+            system=system_with_cache,
             tools=tools,
             messages=messages,
         ) as stream:
@@ -66,17 +71,20 @@ def run_agent_loop(
             return assistant_content
 
         if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
+            tool_blocks = [b for b in response.content if b.type == "tool_use"]
+
+            if len(tool_blocks) > 1:
+                tool_results = _dispatch_parallel(
+                    tool_blocks, project_root, knowledge_base, on_event,
+                )
+            else:
+                tool_results = []
+                for block in tool_blocks:
                     if on_event:
                         on_event("tool_start", {"tool": block.name, "input": block.input})
-
                     result = dispatch_tool(block.name, block.input, project_root, knowledge_base)
-
                     if on_event:
                         on_event("tool_end", {"tool": block.name, "result": result})
-
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,
@@ -88,6 +96,40 @@ def run_agent_loop(
             break
 
     return assistant_content
+
+
+def _dispatch_parallel(
+    tool_blocks: list[Any],
+    project_root: Path,
+    knowledge_base: PluginKnowledgeBase | None,
+    on_event: Callable[[str, dict[str, Any]], None] | None,
+) -> list[dict[str, Any]]:
+    """Execute multiple tool calls concurrently."""
+    for block in tool_blocks:
+        if on_event:
+            on_event("tool_start", {"tool": block.name, "input": block.input})
+
+    results_by_id: dict[str, dict[str, Any]] = {}
+    with ThreadPoolExecutor(max_workers=len(tool_blocks)) as pool:
+        futures = {
+            pool.submit(dispatch_tool, block.name, block.input, project_root, knowledge_base): block
+            for block in tool_blocks
+        }
+        for future in as_completed(futures):
+            block = futures[future]
+            result = future.result()
+            results_by_id[block.id] = result
+            if on_event:
+                on_event("tool_end", {"tool": block.name, "result": result})
+
+    return [
+        {
+            "type": "tool_result",
+            "tool_use_id": block.id,
+            "content": json.dumps(results_by_id[block.id]),
+        }
+        for block in tool_blocks
+    ]
 
 
 def dispatch_tool(

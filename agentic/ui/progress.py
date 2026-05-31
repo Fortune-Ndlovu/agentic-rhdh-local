@@ -141,6 +141,64 @@ class AgentProgressDisplay:
             self._live.stop()
             self._live = None
 
+    def on_prescan_event(self, event_type: str, event_data: dict[str, Any]) -> None:
+        """Handle events from the local pre-scanner."""
+        owner = event_data.get("owner", "")
+        repo = event_data.get("repo", "")
+
+        if event_type == "scan_start":
+            self._current_tool_desc = f"Scanning {owner}/{repo}"
+            self._tool_start = time.time()
+        elif event_type == "scan_info":
+            desc = event_data.get("description", "")
+            topics = event_data.get("topics", [])
+            entry: dict[str, Any] = {
+                "description": f"Repo info for {owner}/{repo}",
+                "duration": time.time() - self._tool_start if self._tool_start else 0.0,
+                "summary": desc[:60] if desc else "",
+                "tool": "get_repo_info",
+            }
+            sub_items = []
+            if desc:
+                sub_items.append(desc[:80])
+            if topics:
+                sub_items.append("Topics: " + ", ".join(topics[:5]))
+            if sub_items:
+                entry["sub_items"] = sub_items
+            self._tool_history.append(entry)
+        elif event_type == "scan_tree":
+            count = event_data.get("count", 0)
+            self._tool_history.append({
+                "description": f"File tree of {owner}/{repo}",
+                "duration": time.time() - self._tool_start if self._tool_start else 0.0,
+                "summary": f"{count} files",
+                "tool": "scan_repo_tree",
+                "sub_items": [f"{count} files in tree"],
+            })
+        elif event_type == "scan_languages":
+            langs = event_data.get("languages", {})
+            top = sorted(langs.items(), key=lambda x: x[1], reverse=True)[:4]
+            self._tool_history.append({
+                "description": f"Languages in {owner}/{repo}",
+                "duration": time.time() - self._tool_start if self._tool_start else 0.0,
+                "summary": ", ".join(f"{l} {v:.0f}%" for l, v in top[:3]),
+                "tool": "get_repo_languages",
+                "sub_items": [", ".join(f"{l} {v:.1f}%" for l, v in top)] if top else [],
+            })
+        elif event_type == "scan_signals":
+            signals = event_data.get("signals", [])
+            if signals:
+                self._tool_history.append({
+                    "description": f"Signals detected in {owner}/{repo}",
+                    "duration": 0.0,
+                    "summary": f"{len(signals)} technologies",
+                    "tool": "detect_signals",
+                    "sub_items": [", ".join(signals)],
+                })
+        elif event_type == "scan_complete":
+            self._current_tool_desc = None
+            self._tool_start = None
+
     def on_turn_start(self, turn: int) -> None:
         self._thinking_lines = []
 

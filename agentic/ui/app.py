@@ -24,6 +24,7 @@ from ..agents.session import MODEL, run_agent_loop
 from ..agents.tools import ALL_TOOLS
 from ..knowledge import PluginKnowledgeBase, extract_catalog_index
 from ..models import CatalogEntityProposal, OnboardingState, PluginProposal
+from ..scanner import pre_scan_all
 from .progress import AgentProgressDisplay
 
 console = Console()
@@ -549,14 +550,61 @@ def run_app(project_root: Path | None = None) -> None:
     owner = _detect_catalog_owner(project_root)
     system_prompt = build_unified_system(knowledge_context, owner=owner)
 
-    # Step 5: Scan + Propose
+    # Step 5: Pre-scan repos locally (parallel, no Claude API calls)
     global _progress
     _progress = AgentProgressDisplay(console)
+    _progress.specialist = "Pre-Scanner"
+    _progress.specialist_icon = "⚡"
+    _progress.phase = "scan"
     _progress.start()
 
-    repo_list = "\n".join(f"- {url}" for url in repos)
+    def _prescan_event(event_type: str, event_data: dict[str, Any]) -> None:
+        if _progress:
+            _progress.on_prescan_event(event_type, event_data)
+
+    try:
+        scan_result = pre_scan_all(repos, kb, owner=owner, on_event=_prescan_event)
+    except Exception as e:
+        _progress.stop()
+        _progress = None
+        console.print(f"\n[red]Pre-scan failed: {e}[/red]")
+        return
+
+    plugin_proposals = scan_result.plugin_proposals
+    entity_proposals = scan_result.entity_proposals
+
+    if not plugin_proposals and not entity_proposals:
+        _progress.stop()
+        _progress = None
+        console.print("\n[yellow]No plugins or entities detected.[/yellow]")
+        return
+
+    # Step 5b: Enrich proposals with AI-generated reasons (single Claude call)
+    _progress._transition("Recommender Agent", "\U0001f9e0", "recommend")
+
+    profiles_json = json.dumps(
+        [p.model_dump() for p in scan_result.profiles], indent=2, default=str,
+    )
+    plugins_json = json.dumps(
+        [p.model_dump() for p in plugin_proposals], indent=2, default=str,
+    )
+    entities_json = json.dumps(
+        [e.model_dump() for e in entity_proposals], indent=2, default=str,
+    )
+
+    enrich_msg = (
+        "I've pre-scanned the repositories and built initial proposals. "
+        "Please enrich each proposal with a detailed, contextual reason explaining WHY "
+        "this plugin/entity is valuable for this specific repo — not generic descriptions. "
+        "Also improve entity descriptions based on what the repo actually does.\n\n"
+        "Return the enriched proposals as two JSON blocks (PLUGIN_PROPOSALS and ENTITY_PROPOSALS) "
+        "with the same structure but better `reason` and `description` fields.\n\n"
+        f"Repo Profiles:\n```json\n{profiles_json}\n```\n\n"
+        f"Plugin Proposals:\n```json\n{plugins_json}\n```\n\n"
+        f"Entity Proposals:\n```json\n{entities_json}\n```"
+    )
     messages: list[dict[str, Any]] = [
-        {"role": "user", "content": f"Scan these repositories and propose plugins and catalog entities:\n{repo_list}"},
+        {"role": "user", "content": enrich_msg},
     ]
 
     try:
@@ -568,25 +616,33 @@ def run_app(project_root: Path | None = None) -> None:
             project_root=project_root,
             on_event=_on_event,
             knowledge_base=kb,
+            max_turns=3,
         )
     except Exception as e:
         _progress.stop()
         _progress = None
-        console.print(f"\n[red]Agent failed: {e}[/red]")
-        return
+        console.print(f"\n[yellow]Enrichment failed, using basic proposals: {e}[/yellow]")
+        show_plugin_proposals(plugin_proposals)
+        show_entity_proposals(entity_proposals)
+        plugin_proposals, entity_proposals = prompt_review(plugin_proposals, entity_proposals, client)
+        # fall through to apply phase below
+        accepted_plugins = [p for p in plugin_proposals if p.accepted]
+        accepted_entities = [e for e in entity_proposals if e.accepted]
+        if not accepted_plugins and not accepted_entities:
+            console.print("[yellow]Nothing to apply. Exiting.[/yellow]")
+            return
+        _save_baseline(project_root)
+        # jump to apply phase handled below
+        response_content = []
 
     _progress.stop()
     _progress = None
 
-    # Step 6: Parse and display proposals
-    plugin_proposals, entity_proposals = parse_proposals_from_response(response_content)
-
-    if not plugin_proposals and not entity_proposals:
-        console.print("\n[yellow]Agent didn't return structured proposals. Raw output:[/yellow]")
-        for block in response_content:
-            if block.get("type") == "text":
-                console.print(f"  {block.get('text', '')[:500]}")
-        return
+    enriched_plugins, enriched_entities = parse_proposals_from_response(response_content)
+    if enriched_plugins:
+        plugin_proposals = enriched_plugins
+    if enriched_entities:
+        entity_proposals = enriched_entities
 
     show_plugin_proposals(plugin_proposals)
     show_entity_proposals(entity_proposals)
