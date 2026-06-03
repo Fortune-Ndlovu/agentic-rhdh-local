@@ -837,8 +837,9 @@ def run_reset(project_root: Path | None = None, *, skip_confirm: bool = False) -
     console.print(f"[green]✓[/green] Removed {removed} generated files")
 
     # Restart RHDH
-    from ..tools.compose import restart_rhdh, is_running
+    from ..tools.compose import ensure_dotenv_compose_vars, restart_rhdh, is_running
 
+    ensure_dotenv_compose_vars(project_root)
     if is_running(project_root):
         console.print("[dim]Restarting RHDH...[/dim]")
         success, output = restart_rhdh(project_root)

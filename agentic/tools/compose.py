@@ -51,6 +51,59 @@ def compose_run(
     return subprocess.run(args, **kwargs)
 
 
+COMPOSE_VOLUME_VARS = [
+    "VERTEX_AI_CREDENTIALS_PATH",
+]
+
+
+def ensure_dotenv_compose_vars(project_root: Path) -> None:
+    """Copy volume-mount variables from default.env to .env so compose can resolve them.
+
+    Compose only reads .env (not env_file entries like default.env) for variable
+    substitution in volume mounts. Without this, mounts using ${VAR:-fallback}
+    silently fall back to placeholder files.
+    """
+    default_env = project_root / "default.env"
+    dot_env = project_root / ".env"
+
+    if not default_env.exists():
+        return
+
+    source_vars: dict[str, str] = {}
+    for line in default_env.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key in COMPOSE_VOLUME_VARS and value.strip():
+            source_vars[key] = value.strip()
+
+    if not source_vars:
+        return
+
+    existing: dict[str, str] = {}
+    existing_lines: list[str] = []
+    if dot_env.exists():
+        existing_lines = dot_env.read_text().splitlines()
+        for line in existing_lines:
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                k, _, _ = stripped.partition("=")
+                existing[k.strip()] = stripped
+
+    new_lines: list[str] = []
+    for key, value in source_vars.items():
+        if key not in existing:
+            new_lines.append(f"{key}={value}")
+
+    if new_lines:
+        content = "\n".join(existing_lines + new_lines) + "\n"
+        dot_env.write_text(content)
+
+
 def restart_rhdh(project_root: Path) -> tuple[bool, str]:
     """Restart RHDH by cycling containers so the plugin installer re-runs."""
     compose = detect_compose_command(project_root)

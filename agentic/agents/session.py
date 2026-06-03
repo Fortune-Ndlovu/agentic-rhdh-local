@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import anthropic
 
-from ..tools.compose import get_container_logs, restart_rhdh
+from ..tools.compose import ensure_dotenv_compose_vars, get_container_logs, restart_rhdh
 from ..tools.github import get_file_content, get_repo_info, get_repo_languages, get_repo_tree
 from ..tools.health_check import check_rhdh_health, diagnose_plugin_errors, wait_for_healthy
 from ..tools.yaml_writer import merge_yaml_file, read_yaml, write_text_file, write_yaml
@@ -192,6 +192,7 @@ def dispatch_tool(
             return {"success": True, "path": str(path)}
 
         elif name == "restart_rhdh":
+            ensure_dotenv_compose_vars(project_root)
             success, output = restart_rhdh(project_root)
             return {"success": success, "output": output}
 

@@ -403,8 +403,9 @@ Check the BLOCKED section in the plugin knowledge base and never include any lis
 These plugins enhance every RHDH instance. ALWAYS include them in proposals:
 - **adoption-insights** — Platform usage metrics dashboard
 - **notifications** — In-app notification system
-- **lightspeed** — AI assistant for Developer Hub (provider configured in default.env)
 Check the ALWAYS INCLUDE section in the plugin knowledge base.
+
+**Note:** Lightspeed is already configured via the `includes: - dynamic-plugins.lightspeed.yaml` chain. Do NOT include lightspeed in proposals or write lightspeed plugin entries to the override.
 
 ### Signal-Driven Plugins
 
@@ -459,10 +460,17 @@ When given approved proposals:
        - /dynamic-plugins-root/dynamic-plugins.extensions.yaml
        - /opt/app-root/src/configs/dynamic-plugins/dynamic-plugins.lightspeed.yaml
      plugins:
+       # REQUIRED: disable inherited Kubernetes plugins (they crash without K8S_CLUSTER_NAME/TOKEN)
+       - package: ./dynamic-plugins/dist/backstage-plugin-kubernetes-backend-dynamic
+         disabled: true
+       - package: ./dynamic-plugins/dist/backstage-plugin-kubernetes
+         disabled: true
        - ...existing plugins from step 1...
        - ...new plugins...
      ```
    - Without `includes:`, the override REPLACES all default plugins (tech-radar, quay, FAB, extensions, lightspeed, etc.)
+   - **ALWAYS** include the two kubernetes `disabled: true` entries at the top of `plugins:` — the default config inherits them with unset env vars that crash RHDH on startup
+   - **NEVER** write lightspeed plugin entries (frontend or backend) into the `plugins:` list — lightspeed is fully configured via the `includes: - dynamic-plugins.lightspeed.yaml` chain. Writing lightspeed entries here creates duplicates with broken `lightspeed.servers` placeholders that override the working config.
    - KEEP all existing plugins from step 1 and APPEND new ones — never drop previously enabled plugins
    - For each new plugin, use the EXACT `ref` from `package_refs` as the `package:` value
    - Skip plugins that are already enabled (check by package name)
@@ -575,6 +583,8 @@ If errors are found:
   ```
 - Without this, the override REPLACES ALL default plugins (tech-radar, quay, FAB, extensions, lightspeed, scaffolder-github) — breaking the default experience
 - Your new plugins go under the `plugins:` key AFTER the `includes:` section
+- ALWAYS disable inherited Kubernetes plugins (they crash without env vars): `backstage-plugin-kubernetes-backend-dynamic` and `backstage-plugin-kubernetes` with `disabled: true`
+- NEVER write lightspeed entries to `plugins:` — they are handled entirely by the `includes:` chain
 
 ### Package References
 - The `package:` field in dynamic-plugins.override.yaml MUST use the exact ref from `lookup_plugin_config`

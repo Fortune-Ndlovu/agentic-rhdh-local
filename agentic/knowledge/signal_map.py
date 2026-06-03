@@ -194,12 +194,13 @@ SIGNAL_MAP: list[SignalPattern] = [
 
 BLOCKED_PLUGINS: set[str] = {
     "github-issues",  # crashes with file: source-location entities (TypeError: URL constructor)
+    "kubernetes",  # requires K8S_CLUSTER_NAME/TOKEN — crashes startup when unset (Tier 3)
+    "kubernetes-backend",  # same — disable inherited default via override instead
 }
 
 ALWAYS_RECOMMEND_PLUGINS: list[dict[str, str]] = [
     {"plugin": "adoption-insights", "reason": "Platform usage metrics dashboard"},
     {"plugin": "notifications", "reason": "In-app notification system for catalog changes and CI events"},
-    {"plugin": "lightspeed", "reason": "AI assistant for Developer Hub — configure provider in default.env (Vertex AI, OpenAI, vLLM, Ollama)"},
 ]
 
 
