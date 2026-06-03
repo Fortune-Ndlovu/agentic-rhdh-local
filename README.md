@@ -133,7 +133,7 @@ app-config.yaml → app-config.patched.yaml → app-config.local.yaml
 
 On the AI track, `rag-init` copies pre-built sentence-transformer embeddings and a FAISS vector database (containing RHDH 1.9 product documentation) into shared volumes. Once both `rhdh` and `rag-init` complete, `lightspeed-core` starts. It shares the `rhdh` container's network namespace (`network_mode: service:rhdh`), so it listens on `localhost:8080` — directly reachable from the Backstage backend without any external networking.
 
-All containers read environment variables from `default.env` (defaults) and `.env` (machine-specific overrides like credential paths). The `.env` file also sets `VERTEX_AI_CREDENTIALS_PATH`, which the compose file uses to mount the GCP credentials JSON into `lightspeed-core` at `/app-root/credentials.json`.
+All containers read environment variables from `default.env` (defaults) and `.env` (machine-specific overrides like credential paths). The `.env` file sets `VERTEX_AI_CREDENTIALS_PATH`, which compose uses to mount the GCP credentials JSON into `lightspeed-core` at `/app-root/credentials.json`. See [Environment Variables: `default.env` vs `.env`](#environment-variables-defaultenv-vs-env) for why both files exist.
 
 ### Lightspeed + Vertex AI
 
@@ -177,7 +177,64 @@ Llama Stack's config uses conditional expansion (`${env.ENABLE_VERTEX_AI:+vertex
 
 Every chat request passes through Llama Stack's RAG pipeline before reaching the LLM. The `rag-init` container pre-loads RHDH product documentation as vector embeddings, so Lightspeed answers questions with context from the actual docs — not just the model's training data.
 
-The Lightspeed frontend and backend plugins are loaded via the dynamic plugins `includes:` chain. A persistent file (`configs/dynamic-plugins/dynamic-plugins.lightspeed.yaml`) is included by every `dynamic-plugins.override.yaml` the agent generates, so Lightspeed survives `agentic-rhdh reset` — no reconfiguration needed.
+### Dynamic Plugin Layering
+
+Plugin configuration uses a three-layer inheritance model. The agent writes only to the override layer — Lightspeed and default plugins are inherited automatically:
+
+```mermaid
+graph TB
+    subgraph layer1["Layer 1: Defaults (from catalog index image)"]
+        DD["dynamic-plugins.default.yaml<br/><i>84 plugins — tech-radar, quay, FAB, scaffolder,<br/>kubernetes, extensions, global-header, …</i>"]
+    end
+
+    subgraph layer2["Layer 2: Lightspeed (persistent, survives reset)"]
+        DL["dynamic-plugins.lightspeed.yaml<br/><i>Lightspeed frontend + backend plugins<br/>No servers: block — uses lightspeed-core sidecar</i>"]
+    end
+
+    subgraph layer3["Layer 3: Override (agent-generated, deleted on reset)"]
+        DO["dynamic-plugins.override.yaml<br/><i>includes: [layer 1, extensions, layer 2]<br/>plugins: [kubernetes disabled, user plugins…]</i>"]
+    end
+
+    subgraph generated["Generated at container start"]
+        DG["app-config.dynamic-plugins.yaml<br/><i>Merged manifest — all layers flattened<br/>by install-dynamic-plugins container</i>"]
+    end
+
+    DD -->|inherited via includes| DO
+    DL -->|inherited via includes| DO
+    DO -->|processed by install-dynamic-plugins| DG
+    DG -->|loaded at startup| RHDH["rhdh container"]
+
+    style layer1 fill:#f0f4f8,stroke:#94a3b8
+    style layer2 fill:#e8f4fd,stroke:#1a73e8
+    style layer3 fill:#fef7e0,stroke:#f9ab00
+    style generated fill:#e6f4ea,stroke:#34a853
+```
+
+**How it works:**
+
+The `includes:` section in `dynamic-plugins.override.yaml` establishes an inheritance chain:
+
+```yaml
+includes:
+  - dynamic-plugins.default.yaml                                        # Layer 1
+  - /dynamic-plugins-root/dynamic-plugins.extensions.yaml               # Extensions
+  - /opt/app-root/src/configs/dynamic-plugins/dynamic-plugins.lightspeed.yaml  # Layer 2
+plugins:
+  # Disable inherited plugins that crash without required env vars
+  - package: ./dynamic-plugins/dist/backstage-plugin-kubernetes-backend-dynamic
+    disabled: true
+  - package: ./dynamic-plugins/dist/backstage-plugin-kubernetes
+    disabled: true
+  # Agent-generated plugins below...
+```
+
+**Design constraints the agent follows:**
+
+1. **Lightspeed is never written to the override** — it's fully configured in Layer 2 (`dynamic-plugins.lightspeed.yaml`), which is a persistent file that survives `agentic-rhdh reset`. Writing Lightspeed entries into the `plugins:` list would create duplicates with broken `lightspeed.servers` placeholders that override the working sidecar config.
+
+2. **Kubernetes plugins are always disabled** — the default catalog index (Layer 1) includes the Kubernetes plugin with `${K8S_CLUSTER_NAME}` and `${K8S_CLUSTER_TOKEN}` placeholders. In a local dev environment these are never set, so Backstage's config schema validation fails and kills the entire startup. The override explicitly disables them.
+
+3. **`agentic-rhdh reset` only deletes Layer 3** — the override file, entity YAMLs, and TechDocs. Layers 1 and 2 are untouched, so Lightspeed works immediately after reset without reconfiguration.
 
 **Credential flow:**
 
@@ -188,6 +245,25 @@ The Lightspeed frontend and backend plugins are loaded via the dynamic plugins `
     ↓  referenced by GOOGLE_APPLICATION_CREDENTIALS env var
 Vertex AI SDK authenticates to GCP
 ```
+
+### Environment Variables: `default.env` vs `.env`
+
+Compose uses **two** env files with different scopes:
+
+| File | Purpose | Used for | Survives reset |
+|------|---------|----------|----------------|
+| `default.env` | Defaults — provider enablement, model config, auth | Container environment (`env_file:` in compose) | Yes |
+| `.env` | Machine-specific overrides — credential paths | Compose variable substitution **and** container environment | Yes |
+
+**Why both?** Compose only reads `.env` for variable substitution in the compose file itself (volume mounts, image tags). Variables in `env_file:` entries like `default.env` are only injected *inside* containers — they can't be used in volume mount paths. `VERTEX_AI_CREDENTIALS_PATH` must be in `.env` because it's used in a volume mount:
+
+```yaml
+# developer-lightspeed/compose.yaml
+- ${VERTEX_AI_CREDENTIALS_PATH:-./placeholder.json}:/app-root/credentials.json:Z
+#   ↑ resolved from .env at compose parse time, NOT from default.env
+```
+
+The onboarding agent automatically syncs volume-mount variables from `default.env` to `.env` before restarting RHDH, so users only need to edit `default.env`.
 
 ### Agentic Onboarding
 
@@ -546,8 +622,8 @@ agentic-rhdh-local/
 | Tekton | `tekton/`, `.tekton/` | tekton plugin |
 | Jenkins | `Jenkinsfile` | jenkins plugin |
 | ArgoCD | `argocd/`, `argoproj.io/` | argocd plugin |
-| Kubernetes | `k8s/`, `deploy/`, `manifests/` | kubernetes + topology plugins |
-| Helm | `Chart.yaml` | kubernetes plugin |
+| Kubernetes | `k8s/`, `deploy/`, `manifests/` | topology plugin *(kubernetes blocked — Tier 3)* |
+| Helm | `Chart.yaml` | topology plugin *(kubernetes blocked — Tier 3)* |
 | Docker | `Dockerfile`, `Containerfile` | topology plugin |
 | TechDocs | `mkdocs.yml`, `docs/` | techdocs plugin |
 | OpenAPI | `openapi.yaml`, `swagger.json` | api-docs plugin |
