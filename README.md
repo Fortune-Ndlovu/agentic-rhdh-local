@@ -42,7 +42,7 @@ Proposed Plugins (7):
 ├─────┼──────────────────────────┼────────────────┼──────────────────────────────────────┤
 │ 1   │ TechDocs                 │ Documentation  │ Rich docs/ directory with 10+ files  │
 │ 2   │ Adoption Insights        │ Analytics      │ Platform usage metrics dashboard     │
-│ 3   │ Notifications            │ Notifications  │ In-app notification system            │
+│ 3   │ Notifications            │ Notifications  │ In-app notification system           │
 │ 4   │ GitHub Actions           │ CI/CD          │ 14 workflows — nightly, PR tests     │
 │ 5   │ GitHub Pull Requests     │ Source Control │ Active PR template + CODEOWNERS      │
 │ 6   │ GitHub Insights          │ Source Control │ Language breakdown, contributors     │
@@ -641,7 +641,7 @@ agentic-rhdh-local/
 ```sh
 podman compose up -d                                   # Start RHDH + Lightspeed
 podman compose run install-dynamic-plugins             # Re-install plugins after config change
-podman compose stop rhdh && podman compose start rhdh   # Restart RHDH only
+podman compose stop rhdh && podman compose start rhdh  # Restart RHDH only
 podman compose down --volumes                          # Tear down everything
 ```
 

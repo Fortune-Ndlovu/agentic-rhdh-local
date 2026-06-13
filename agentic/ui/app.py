@@ -320,7 +320,7 @@ def _generate_onboarding_doc(
     lines.append("RHDH has 80+ dynamic plugins available beyond what was auto-configured above.")
     lines.append("")
     lines.append("**Browse available plugins:**")
-    lines.append("- [RHDH Dynamic Plugins Catalog](https://docs.redhat.com/en/documentation/red_hat_developer_hub/1.4/html/configuring_plugins_in_red_hat_developer_hub/index)")
+    lines.append("- [RHDH Dynamic Plugins Catalog](https://docs.redhat.com/en/documentation/red_hat_developer_hub/1.9/html/dynamic_plugins_reference/index)")
     lines.append("- Run `agentic-rhdh` again with additional repos to detect more plugin opportunities")
     lines.append("")
     lines.append("**How plugins are configured:**")
