@@ -21,7 +21,7 @@ A single command where the user's only job is to provide their repos:
 $ agentic-rhdh
 
 ╔═══════════════════════════════════════════════════════════════╗
-║  Agentic RHDH Local — Smart Onboarding                       ║
+║  Agentic RHDH Local — Smart Onboarding                        ║
 ╚═══════════════════════════════════════════════════════════════╝
 
 Add your team's repositories:
@@ -64,6 +64,54 @@ Applying configuration...
 │ Onboarding summary saved to ONBOARDING.md                    │
 ╰──────────────────────────────────────────────────────────────╯
 ```
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.11+
+- [Podman](https://podman.io/docs/installation) v5.4.1+ or [Docker](https://docs.docker.com/engine/) v28.1.0+ with Compose
+- Claude API access — either:
+  - **Vertex AI**: `CLAUDE_CODE_USE_VERTEX=1` + `ANTHROPIC_VERTEX_PROJECT_ID`
+  - **Direct**: `ANTHROPIC_API_KEY`
+- GitHub auth: [`gh` CLI](https://cli.github.com/) (`gh auth login`) or `GITHUB_TOKEN` env var
+- **For Lightspeed** (optional): GCP credentials (`gcloud auth application-default login`)
+
+### Run
+
+```sh
+git clone https://github.com/Fortune-Ndlovu/agentic-rhdh-local.git
+cd agentic-rhdh-local
+
+# Start RHDH + Lightspeed (compose.override.yaml auto-includes lightspeed-core)
+podman compose up -d
+
+# Install the agentic CLI
+pip install -e .
+
+# Configure Claude API access
+# Option A: Vertex AI
+export CLAUDE_CODE_USE_VERTEX=1
+export ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project
+
+# Option B: Direct Anthropic API
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Run the onboarding agent
+agentic-rhdh
+```
+
+### Commands
+
+```sh
+agentic-rhdh                          # Run onboarding
+agentic-rhdh reset                    # Remove generated config, restore baseline
+agentic-rhdh --project-dir /path/to   # Use a different project directory
+```
+
+Access RHDH at [http://localhost:7007](http://localhost:7007).
 
 ---
 
@@ -533,54 +581,6 @@ The human-in-the-loop review gate supports structured input (row numbers, "all",
 2. **Claude fallback**: For genuinely ambiguous input, sends the plugin list and user input to Claude with a 256-token budget to interpret selection intent — returns a JSON array of plugin numbers to keep
 
 This means the review step itself uses Claude as a lightweight NL interpreter, separate from the main agent conversation.
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.11+
-- [Podman](https://podman.io/docs/installation) v5.4.1+ or [Docker](https://docs.docker.com/engine/) v28.1.0+ with Compose
-- Claude API access — either:
-  - **Vertex AI**: `CLAUDE_CODE_USE_VERTEX=1` + `ANTHROPIC_VERTEX_PROJECT_ID`
-  - **Direct**: `ANTHROPIC_API_KEY`
-- GitHub auth: [`gh` CLI](https://cli.github.com/) (`gh auth login`) or `GITHUB_TOKEN` env var
-- **For Lightspeed** (optional): GCP credentials (`gcloud auth application-default login`)
-
-### Run
-
-```sh
-git clone https://github.com/Fortune-Ndlovu/agentic-rhdh-local.git
-cd agentic-rhdh-local
-
-# Start RHDH + Lightspeed (compose.override.yaml auto-includes lightspeed-core)
-podman compose up -d
-
-# Install the agentic CLI
-pip install -e .
-
-# Configure Claude API access
-# Option A: Vertex AI
-export CLAUDE_CODE_USE_VERTEX=1
-export ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project
-
-# Option B: Direct Anthropic API
-export ANTHROPIC_API_KEY=sk-ant-...
-
-# Run the onboarding agent
-agentic-rhdh
-```
-
-### Commands
-
-```sh
-agentic-rhdh                          # Run onboarding
-agentic-rhdh reset                    # Remove generated config, restore baseline
-agentic-rhdh --project-dir /path/to   # Use a different project directory
-```
-
-Access RHDH at [http://localhost:7007](http://localhost:7007).
 
 ---
 
