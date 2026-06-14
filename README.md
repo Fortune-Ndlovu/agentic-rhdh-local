@@ -584,32 +584,6 @@ This means the review step itself uses Claude as a lightweight NL interpreter, s
 
 ---
 
-## Project Structure
-
-```
-agentic-rhdh-local/
-├── agentic/                          # AI-powered onboarding agent
-│   ├── __main__.py                   # CLI entry point (Typer)
-│   ├── agents/                       # Agent prompt, session loop, tool schemas
-│   ├── knowledge/                    # Plugin index, signal map, catalog extractor
-│   ├── tools/                        # GitHub API, YAML writer, compose, health check
-│   └── ui/                           # Rich TUI — input, proposals, review, completion
-├── compose.yaml                      # Base containers (rhdh, install-dynamic-plugins)
-├── compose.override.yaml             # → symlink to developer-lightspeed/compose.yaml
-├── developer-lightspeed/             # Lightspeed stack
-│   ├── compose.yaml                  # Adds rag-init + lightspeed-core containers
-│   └── configs/                      # Llama Stack config, RAG profile, app-config overlay
-├── configs/
-│   ├── dynamic-plugins/              # Plugin configs (default + override + lightspeed)
-│   ├── catalog-entities/             # Catalog entity YAML + TechDocs (agent-generated)
-│   └── app-config/                   # RHDH app config (base + local overrides)
-├── default.env                       # Default env vars (providers, auth, images)
-├── .env                              # Machine-specific overrides (credential paths)
-└── ONBOARDING.md                     # Generated onboarding summary (after agent run)
-```
-
----
-
 <details>
 <summary><strong>Signal Detection</strong> — file patterns the agent recognizes</summary>
 
