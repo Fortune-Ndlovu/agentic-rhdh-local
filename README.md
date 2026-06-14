@@ -11,7 +11,7 @@ Built on the [Anthropic Messages API](https://docs.anthropic.com/en/docs/build-w
 
 ## The Problem
 
-Getting started with RHDH requires figuring out which plugins match your tech stack, writing the correct `pluginConfig` YAML, creating Backstage catalog entities with the right annotations, and debugging config errors on restart. This is error-prone and requires deep RHDH knowledge before seeing any value.
+Getting started with RHDH requires figuring out which plugins match your tech stack, writing the correct `pluginConfig` YAML, creating Backstage catalog entities with the right annotations, and debugging config errors on restart. This can be error-prone and requires head-down time before figuring out what works best.
 
 ## The Solution
 
