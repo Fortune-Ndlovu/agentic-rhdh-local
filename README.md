@@ -111,6 +111,17 @@ agentic-rhdh reset                    # Remove generated config, restore baselin
 agentic-rhdh --project-dir /path/to   # Use a different project directory
 ```
 
+### RHDH Local Commands
+
+> Replace `podman` with `docker` if using Docker.
+
+```sh
+podman compose up -d                                   # Start RHDH + Lightspeed
+podman compose run install-dynamic-plugins             # Re-install plugins after config change
+podman compose stop rhdh && podman compose start rhdh  # Restart RHDH only
+podman compose down --volumes                          # Tear down everything
+```
+
 Access RHDH at [http://localhost:7007](http://localhost:7007).
 
 ---
@@ -604,20 +615,6 @@ This means the review step itself uses Claude as a lightweight NL interpreter, s
 | SonarQube | `sonar-project.properties` | sonarqube plugin |
 | Ansible | `ansible/`, `playbooks/` | ansible plugin |
 | Azure DevOps | `azure-pipelines.yml` | azure-devops plugin |
-
-</details>
-
-<details>
-<summary><strong>RHDH Local Commands</strong></summary>
-
-> Replace `podman` with `docker` if using Docker.
-
-```sh
-podman compose up -d                                   # Start RHDH + Lightspeed
-podman compose run install-dynamic-plugins             # Re-install plugins after config change
-podman compose stop rhdh && podman compose start rhdh  # Restart RHDH only
-podman compose down --volumes                          # Tear down everything
-```
 
 </details>
 
