@@ -126,6 +126,34 @@ Access RHDH at [http://localhost:7007](http://localhost:7007).
 
 ---
 
+## Agentic Onboarding CLI
+
+The `agentic-rhdh` command is a Python CLI (`agentic/`) that automates RHDH onboarding from GitHub repository URLs. It runs alongside RHDH Local and Developer Lightspeed — it does not replace them.
+
+![Agentic onboarding CLI](docs/images/agentic-onbourding-cli.png)
+
+### How it works
+
+1. **Knowledge base** — extracts the RHDH plugin catalog index (~84 plugins) from the OCI image so recommendations are grounded, not hallucinated
+2. **Local pre-scan** — matches repo file patterns (GitHub Actions, TechDocs, Kubernetes, etc.) to plugins without LLM calls
+3. **AI enrichment** — Claude improves proposal reasons with repo-specific context
+4. **Human review** — you approve plugins and catalog entities before any config is written
+5. **Apply + self-heal** — writes `dynamic-plugins.override.yaml` and entity YAML, restarts compose, health-checks, and retries on failure
+6. **Summary** — writes `ONBOARDING.md` with enabled plugins and any required env vars
+
+The agent only writes the **override layer** — default plugins, Lightspeed config, and extensions survive `agentic-rhdh reset`.
+
+### Source layout
+
+```
+agentic/
+├── agents/      # prompts, tool-use loop, Claude client
+├── knowledge/   # OCI catalog extraction, plugin index, signal map
+├── tools/       # compose, GitHub API, YAML I/O, health checks
+├── scanner.py   # local pre-scan
+└── ui/          # Rich TUI
+```
+
 ---
 
 ## Additional Guides
