@@ -595,29 +595,6 @@ This means the review step itself uses Claude as a lightweight NL interpreter, s
 
 ---
 
-<details>
-<summary><strong>Signal Detection</strong> — file patterns the agent recognizes</summary>
-
-| Signal | File Patterns | Maps To |
-|--------|--------------|---------|
-| GitHub Actions | `.github/workflows/*.yml` | github-actions plugin |
-| GitHub Pull Requests | `.github/**/*` | github-pull-requests plugin |
-| GitHub Insights | `.github/**/*` | github-insights plugin |
-| Security Insights | `.github/**/*` | security-insights plugin |
-| Tekton | `tekton/`, `.tekton/` | tekton plugin |
-| Jenkins | `Jenkinsfile` | jenkins plugin |
-| ArgoCD | `argocd/`, `argoproj.io/` | argocd plugin |
-| Kubernetes | `k8s/`, `deploy/`, `manifests/` | topology plugin *(kubernetes blocked — Tier 3)* |
-| Helm | `Chart.yaml` | topology plugin *(kubernetes blocked — Tier 3)* |
-| Docker | `Dockerfile`, `Containerfile` | topology plugin |
-| TechDocs | `mkdocs.yml`, `docs/` | techdocs plugin |
-| OpenAPI | `openapi.yaml`, `swagger.json` | api-docs plugin |
-| SonarQube | `sonar-project.properties` | sonarqube plugin |
-| Ansible | `ansible/`, `playbooks/` | ansible plugin |
-| Azure DevOps | `azure-pipelines.yml` | azure-devops plugin |
-
-</details>
-
 ## Additional Guides
 
 1. [Developer Lightspeed Guide](./developer-lightspeed/README.md) — AI assistance setup and provider configuration
