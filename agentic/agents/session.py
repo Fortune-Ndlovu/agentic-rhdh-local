@@ -193,12 +193,23 @@ def dispatch_tool(
 
         elif name == "restart_rhdh":
             ensure_dotenv_compose_vars(project_root)
-            success, output = restart_rhdh(project_root)
-            return {"success": success, "output": output}
+            full = tool_input.get("full", False)
+            reinstall_plugins = tool_input.get("reinstall_plugins", True)
+            success, output = restart_rhdh(
+                project_root,
+                reinstall_plugins=reinstall_plugins,
+                full=full,
+            )
+            return {
+                "success": success,
+                "output": output,
+                "mode": "full" if full else "fast",
+                "reinstall_plugins": reinstall_plugins,
+            }
 
         elif name == "check_rhdh_health":
             if tool_input.get("wait", False):
-                result = wait_for_healthy(max_wait=tool_input.get("max_wait", 120))
+                result = wait_for_healthy(max_wait=tool_input.get("max_wait", 90))
             else:
                 result = check_rhdh_health()
             return {

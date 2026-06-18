@@ -200,15 +200,20 @@ plugins:
 
 After writing configs:
 1. Use the `write_yaml` tool to atomically write each config file
-2. Use `restart_rhdh` to restart the RHDH container
-3. Use `check_rhdh_health` to verify RHDH comes up healthy
+2. Use `restart_rhdh` to apply changes (fast by default — does NOT tear down the stack)
+   - `reinstall_plugins: true` (default) when `dynamic-plugins.override.yaml` changed
+   - `reinstall_plugins: false` when ONLY app-config or catalog entity files changed
+   - `full: true` only if recovery is needed after a failed fast restart
+3. Use `check_rhdh_health` with `wait=true` to verify RHDH comes up healthy
 4. Use `diagnose_plugin_errors` to check for plugin-specific errors in logs
 
 If RHDH fails to start:
 1. Read the error from logs
 2. Diagnose: missing env var? wrong config? version mismatch?
-3. Fix the config and retry (up to 3 attempts)
-4. If still failing: disable the problematic plugin in the override, report the specific failure
+3. Fix the config and retry once (up to 2 attempts total)
+4. If still failing: try `restart_rhdh` with `full=true`, then disable the problematic plugin
+
+If `restart_rhdh` reports failed but `check_rhdh_health` returns healthy, treat as success — do NOT rewrite configs or restart again.
 
 ## Rules
 - NEVER modify default config files — only write to override files
@@ -563,17 +568,20 @@ When given approved proposals:
      ```
      This uses the GITHUB_TOKEN from the user's default.env — no OAuth App needed
 
-6. **Restart RHDH** using `restart_rhdh`
+6. **Restart RHDH** using `restart_rhdh` (fast path — one restart per apply batch):
+   - Default: `reinstall_plugins: true` when you wrote `dynamic-plugins.override.yaml`
+   - Use `reinstall_plugins: false` when you only changed app-config or catalog files
+   - Never use `full: true` unless fast restart failed and rhdh is unhealthy
 
 7. **Check health** using `check_rhdh_health` with `wait=true`
 
-8. **Diagnose errors** using `diagnose_plugin_errors` if unhealthy
+8. **Diagnose errors** using `diagnose_plugin_errors` only if unhealthy
 
 If errors are found:
 - Parse the error (missing env var? bad config? version mismatch?)
-- Fix the config and retry (up to 3 attempts)
-- If still failing: disable the problematic plugin and report the specific failure
-- NEVER silently give up — always report what happened
+- Fix the config and retry once (up to 2 attempts total)
+- If still failing: try `restart_rhdh` with `full=true`, then disable the problematic plugin
+- If restart reports failed but health is OK, stop — do not retry the apply loop
 
 ## Critical Rules
 

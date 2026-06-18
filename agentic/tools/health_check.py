@@ -46,8 +46,8 @@ def check_rhdh_health(
 
 def wait_for_healthy(
     base_url: str = RHDH_BASE_URL,
-    max_wait: int = 120,
-    interval: int = 5,
+    max_wait: int = 90,
+    interval: float = 2.0,
 ) -> HealthResult:
     """Poll RHDH until healthy or timeout."""
     start = time.time()

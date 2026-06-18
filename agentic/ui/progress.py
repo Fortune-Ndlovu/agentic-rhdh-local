@@ -61,7 +61,11 @@ def _describe_tool(name: str, inp: dict[str, Any]) -> str:
     if name == "read_yaml":
         return f"Reading {inp.get('path', '')}"
     if name == "restart_rhdh":
-        return "Restarting RHDH containers"
+        if inp.get("full"):
+            return "Full stack restart (compose down/up)"
+        if inp.get("reinstall_plugins") is False:
+            return "Restarting RHDH (config reload only)"
+        return "Reinstalling plugins and restarting RHDH"
     if name == "check_rhdh_health":
         return "Waiting for RHDH to become healthy..." if inp.get("wait") else "Checking RHDH health"
     if name == "diagnose_plugin_errors":
@@ -86,7 +90,8 @@ def _summarize_result(name: str, result: dict[str, Any]) -> str:
     if name in ("write_yaml", "merge_yaml", "write_file"):
         return "written" if result.get("success") else result.get("error", "failed")
     if name == "restart_rhdh":
-        return "restarted" if result.get("success") else "failed"
+        mode = result.get("mode", "fast")
+        return f"{mode} restart ok" if result.get("success") else f"{mode} restart failed"
     if name == "lookup_plugin_config":
         if "error" in result:
             return "not found"

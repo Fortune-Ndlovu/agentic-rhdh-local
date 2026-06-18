@@ -35,10 +35,13 @@ def compose_run(
     *,
     service: str | None = None,
     timeout: int = 120,
+    extra_args: list[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a compose command (up, down, restart, logs, etc.)."""
     compose = detect_compose_command(project_root)
     args = [*compose, command]
+    if extra_args:
+        args.extend(extra_args)
     if service:
         args.append(service)
 
@@ -54,6 +57,18 @@ def compose_run(
 COMPOSE_VOLUME_VARS = [
     "VERTEX_AI_CREDENTIALS_PATH",
 ]
+
+
+def _lightspeed_enabled(project_root: Path) -> bool:
+    return (project_root / "developer-lightspeed" / "compose.yaml").exists()
+
+
+def _restart_services(project_root: Path) -> list[str]:
+    """Services to restart after config changes (lightspeed shares rhdh's network)."""
+    services = ["rhdh"]
+    if _lightspeed_enabled(project_root) and is_running(project_root, "lightspeed-core"):
+        services.append("lightspeed-core")
+    return services
 
 
 def ensure_dotenv_compose_vars(project_root: Path) -> None:
@@ -104,8 +119,31 @@ def ensure_dotenv_compose_vars(project_root: Path) -> None:
         dot_env.write_text(content)
 
 
-def restart_rhdh(project_root: Path) -> tuple[bool, str]:
-    """Restart RHDH by cycling containers so the plugin installer re-runs."""
+def run_install_plugins(project_root: Path) -> tuple[bool, str]:
+    """Re-run the install-dynamic-plugins init container and wait for completion."""
+    compose = detect_compose_command(project_root)
+    # Foreground, no deps: only reinstall plugins — do not start/stop rhdh or lightspeed.
+    result = subprocess.run(
+        [
+            *compose,
+            "up",
+            "--no-deps",
+            "--force-recreate",
+            "--abort-on-container-exit",
+            "install-dynamic-plugins",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        cwd=str(project_root),
+    )
+    success = result.returncode == 0
+    output = result.stdout + result.stderr
+    return success, output
+
+
+def _full_stack_restart(project_root: Path) -> tuple[bool, str]:
+    """Tear down and recreate the entire compose stack (cold start / recovery)."""
     compose = detect_compose_command(project_root)
     down = subprocess.run(
         [*compose, "down"],
@@ -114,7 +152,7 @@ def restart_rhdh(project_root: Path) -> tuple[bool, str]:
     )
     up = subprocess.run(
         [*compose, "up", "-d"],
-        capture_output=True, text=True, timeout=180,
+        capture_output=True, text=True, timeout=300,
         cwd=str(project_root),
     )
     success = up.returncode == 0
@@ -122,13 +160,52 @@ def restart_rhdh(project_root: Path) -> tuple[bool, str]:
     return success, output
 
 
-def run_install_plugins(project_root: Path) -> tuple[bool, str]:
-    """Run the install-dynamic-plugins init container."""
-    compose_run("stop", project_root, service="install-dynamic-plugins")
-    result = compose_run("up", project_root, service="install-dynamic-plugins", timeout=180)
-    success = result.returncode == 0
-    output = result.stdout + result.stderr
-    return success, output
+def _fast_restart(
+    project_root: Path,
+    *,
+    reinstall_plugins: bool,
+) -> tuple[bool, str]:
+    """Restart only what changed — skip full stack teardown."""
+    compose = detect_compose_command(project_root)
+    output_parts: list[str] = []
+
+    if reinstall_plugins:
+        ok, out = run_install_plugins(project_root)
+        output_parts.append(out)
+        if not ok:
+            return False, "".join(output_parts)
+
+    services = _restart_services(project_root)
+    result = subprocess.run(
+        [*compose, "restart", *services],
+        capture_output=True, text=True, timeout=120,
+        cwd=str(project_root),
+    )
+    output_parts.append(result.stdout + result.stderr)
+
+    # compose restart may warn on shared-network sidecars; running rhdh is what matters.
+    success = result.returncode == 0 or is_running(project_root, "rhdh")
+    return success, "".join(output_parts)
+
+
+def restart_rhdh(
+    project_root: Path,
+    *,
+    reinstall_plugins: bool = True,
+    full: bool = False,
+) -> tuple[bool, str]:
+    """Apply config changes by restarting RHDH.
+
+    Fast path (default when rhdh is already running):
+      1. Optionally re-run install-dynamic-plugins (when plugin override changed)
+      2. compose restart rhdh [+ lightspeed-core]
+
+    Full path (cold start or explicit recovery):
+      compose down && compose up -d — recreates every service including rag-init.
+    """
+    if full or not is_running(project_root, "rhdh"):
+        return _full_stack_restart(project_root)
+    return _fast_restart(project_root, reinstall_plugins=reinstall_plugins)
 
 
 def get_container_logs(

@@ -97,10 +97,30 @@ MERGE_YAML_TOOL: dict[str, Any] = {
 
 RESTART_RHDH_TOOL: dict[str, Any] = {
     "name": "restart_rhdh",
-    "description": "Restart the RHDH container via docker/podman compose. Returns success status and output.",
+    "description": (
+        "Apply config changes by restarting RHDH. Fast by default: re-runs the plugin "
+        "installer (optional) then restarts rhdh without tearing down the whole stack. "
+        "Use reinstall_plugins=false when only app-config or catalog entities changed. "
+        "Use full=true only for cold-start recovery."
+    ),
     "input_schema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+            "reinstall_plugins": {
+                "type": "boolean",
+                "description": (
+                    "Re-run install-dynamic-plugins before restarting rhdh. "
+                    "Set false when dynamic-plugins.override.yaml was NOT changed "
+                    "(app-config or catalog-only updates). Default true."
+                ),
+                "default": True,
+            },
+            "full": {
+                "type": "boolean",
+                "description": "Full compose down/up — slow, only for recovery. Default false.",
+                "default": False,
+            },
+        },
     },
 }
 
@@ -111,7 +131,7 @@ CHECK_RHDH_HEALTH_TOOL: dict[str, Any] = {
         "type": "object",
         "properties": {
             "wait": {"type": "boolean", "description": "If true, poll until healthy or timeout", "default": False},
-            "max_wait": {"type": "integer", "description": "Max seconds to wait (default 120)", "default": 120},
+            "max_wait": {"type": "integer", "description": "Max seconds to wait (default 90)", "default": 90},
         },
     },
 }
