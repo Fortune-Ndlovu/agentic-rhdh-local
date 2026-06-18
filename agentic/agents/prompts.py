@@ -465,11 +465,23 @@ When given approved proposals:
          disabled: true
        - package: ./dynamic-plugins/dist/backstage-plugin-kubernetes
          disabled: true
+       # REQUIRED: disable inherited Orchestrator plugins (they require registry.access.redhat.com OCI pulls that crash the installer with TLS timeouts)
+       - package: 'oci://registry.access.redhat.com/rhdh/red-hat-developer-hub-backstage-plugin-orchestrator-backend-module-loki:{{inherit}}'
+         disabled: true
+       - package: 'oci://registry.access.redhat.com/rhdh/red-hat-developer-hub-backstage-plugin-orchestrator-backend:{{inherit}}'
+         disabled: true
+       - package: 'oci://registry.access.redhat.com/rhdh/red-hat-developer-hub-backstage-plugin-orchestrator-form-widgets:{{inherit}}'
+         disabled: true
+       - package: 'oci://registry.access.redhat.com/rhdh/red-hat-developer-hub-backstage-plugin-orchestrator:{{inherit}}'
+         disabled: true
+       - package: 'oci://registry.access.redhat.com/rhdh/red-hat-developer-hub-backstage-plugin-scaffolder-backend-module-orchestrator:{{inherit}}'
+         disabled: true
        - ...existing plugins from step 1...
        - ...new plugins...
      ```
    - Without `includes:`, the override REPLACES all default plugins (tech-radar, quay, FAB, extensions, lightspeed, etc.)
    - **ALWAYS** include the two kubernetes `disabled: true` entries at the top of `plugins:` — the default config inherits them with unset env vars that crash RHDH on startup
+   - **ALWAYS** include the five orchestrator `disabled: true` entries — they reference OCI images at `registry.access.redhat.com` that require TLS access and crash the entire plugin installer on timeout, preventing ALL plugins from loading
    - **NEVER** write lightspeed plugin entries (frontend or backend) into the `plugins:` list — lightspeed is fully configured via the `includes: - dynamic-plugins.lightspeed.yaml` chain. Writing lightspeed entries here creates duplicates with broken `lightspeed.servers` placeholders that override the working config.
    - KEEP all existing plugins from step 1 and APPEND new ones — never drop previously enabled plugins
    - For each new plugin, use the EXACT `ref` from `package_refs` as the `package:` value
@@ -584,6 +596,7 @@ If errors are found:
 - Without this, the override REPLACES ALL default plugins (tech-radar, quay, FAB, extensions, lightspeed, scaffolder-github) — breaking the default experience
 - Your new plugins go under the `plugins:` key AFTER the `includes:` section
 - ALWAYS disable inherited Kubernetes plugins (they crash without env vars): `backstage-plugin-kubernetes-backend-dynamic` and `backstage-plugin-kubernetes` with `disabled: true`
+- ALWAYS disable inherited Orchestrator plugins (they pull from `registry.access.redhat.com` via OCI and crash the installer on TLS timeout): disable all five `oci://registry.access.redhat.com/rhdh/red-hat-developer-hub-backstage-plugin-orchestrator*` packages with `disabled: true` and `{{inherit}}` version
 - NEVER write lightspeed entries to `plugins:` — they are handled entirely by the `includes:` chain
 
 ### Package References
