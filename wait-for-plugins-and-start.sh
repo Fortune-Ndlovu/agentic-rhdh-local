@@ -24,11 +24,24 @@ USERS_OVERRIDE="configs/catalog-entities/users.override.yaml"
 mkdir -p generated
 cp -f "$DEFAULT_APP_CONFIG" "$PATCHED_APP_CONFIG"
 
-# Wait until the dynamic plugin config is ready
-while [ ! -f "$DYNAMIC_PLUGINS_CONFIG" ]; do
-  echo "Waiting for $DYNAMIC_PLUGINS_CONFIG to be created by install-dynamic-plugins container ..."
+# Wait until the installer has fully completed (config written, temp dirs cleaned up)
+INSTALL_COMPLETE="dynamic-plugins-root/.install-complete"
+while [ ! -f "$INSTALL_COMPLETE" ]; do
+  echo "Waiting for install-dynamic-plugins to finish ..."
   sleep 2
 done
+
+# Verify the dynamic plugin config was actually generated
+if [ ! -f "$DYNAMIC_PLUGINS_CONFIG" ]; then
+  echo "[error] $DYNAMIC_PLUGINS_CONFIG was not created — the installer may have failed. Check rhdh-plugins-installer logs."
+  exit 1
+fi
+
+# Remove leftover temp directory so the PluginScanner doesn't try to load it as a plugin.
+# This runs on every start (including restart), unlike the installer which only runs on fresh up.
+if [ -d "dynamic-plugins-root/.catalog-index-temp" ]; then
+  rm -rf "dynamic-plugins-root/.catalog-index-temp"
+fi
 
 # Apply overrides by replacing target paths in the patched config
 if [ -f "$USERS_OVERRIDE" ]; then

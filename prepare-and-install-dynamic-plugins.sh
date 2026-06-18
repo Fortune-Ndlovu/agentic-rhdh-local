@@ -66,5 +66,17 @@ EOF
     echo '... file '$DYNAMIC_PLUGINS_EXTENSIONS_FILE' created!'
 fi
 
+# Clean up stale markers from previous runs
+rm -rf /dynamic-plugins-root/.install-complete
+
 echo "Running install-dynamic-plugins.sh"
-./install-dynamic-plugins.sh /dynamic-plugins-root
+INSTALL_EXIT=0
+./install-dynamic-plugins.sh /dynamic-plugins-root || INSTALL_EXIT=$?
+
+# Remove the temp directory so the PluginScanner doesn't try to load it as a plugin.
+rm -rf /dynamic-plugins-root/.catalog-index-temp
+
+# Signal that the install process is complete (even on failure, so RHDH doesn't hang).
+touch /dynamic-plugins-root/.install-complete
+
+exit $INSTALL_EXIT

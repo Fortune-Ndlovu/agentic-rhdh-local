@@ -1,11 +1,11 @@
 services:
   install-dynamic-plugins:
     volumes:
-      - ./developer-lightspeed/configs:/opt/app-root/src/developer-lightspeed/configs:Z
+      - ./developer-lightspeed/configs:/opt/app-root/src/developer-lightspeed/configs:z
 
   rhdh:
     volumes:
-      - ./developer-lightspeed/configs:/opt/app-root/src/developer-lightspeed/configs:Z
+      - ./developer-lightspeed/configs:/opt/app-root/src/developer-lightspeed/configs:z
 
   # RAG initialization service: Copies RAG embeddings and vector database to shared volumes
   # This runs once at startup to prepare the RAG data for the lightspeed-core container
