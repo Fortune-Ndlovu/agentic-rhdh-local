@@ -288,31 +288,37 @@ def apply_configs(
             errors.append(f"dynamic-plugins.override.yaml: {e}")
             _emit("tool_end", {"tool": "write_yaml", "result": {"error": str(e)}})
 
-    # Phase 2: Write entity YAMLs + TechDocs in parallel
+    # Phase 2: Write entity YAMLs + TechDocs in parallel (events emitted after)
     if entities:
         def _write_entity(entity: CatalogEntityProposal) -> list[str]:
             paths = []
-            _emit("tool_start", {"tool": "write_yaml", "input": {"path": f"configs/catalog-entities/{entity.name}-component.yaml"}})
             p = write_entity_yaml(project_root, entity)
             paths.append(str(p.relative_to(project_root)))
-            _emit("tool_end", {"tool": "write_yaml", "result": {"success": True, "path": str(p)}})
-
-            _emit("tool_start", {"tool": "write_techdocs", "input": {"entity": entity.name}})
             mkdocs, index = write_techdocs(project_root, entity)
             paths.append(str(mkdocs.relative_to(project_root)))
             paths.append(str(index.relative_to(project_root)))
-            _emit("tool_end", {"tool": "write_techdocs", "result": {"success": True, "entity": entity.name}})
             return paths
 
+        entity_results: list[tuple[CatalogEntityProposal, list[str] | None, str | None]] = []
         with ThreadPoolExecutor(max_workers=min(len(entities), 4)) as pool:
             futures = {pool.submit(_write_entity, e): e for e in entities}
             for future in as_completed(futures):
                 entity = futures[future]
                 try:
                     paths = future.result()
-                    written_files.extend(paths)
+                    entity_results.append((entity, paths, None))
                 except Exception as e:
-                    errors.append(f"{entity.name}: {e}")
+                    entity_results.append((entity, None, str(e)))
+
+        for entity, paths, err in entity_results:
+            if err:
+                errors.append(f"{entity.name}: {err}")
+                continue
+            _emit("tool_start", {"tool": "write_yaml", "input": {"path": f"configs/catalog-entities/{entity.name}-component.yaml"}})
+            _emit("tool_end", {"tool": "write_yaml", "result": {"success": True}})
+            _emit("tool_start", {"tool": "write_techdocs", "input": {"entity": entity.name}})
+            _emit("tool_end", {"tool": "write_techdocs", "result": {"success": True, "entity": entity.name}})
+            written_files.extend(paths)
 
         # Phase 3: Write components.override.yaml (after entity files exist)
         _emit("tool_start", {"tool": "write_yaml", "input": {"path": "configs/catalog-entities/components.override.yaml"}})
