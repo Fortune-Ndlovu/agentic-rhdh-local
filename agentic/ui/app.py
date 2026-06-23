@@ -580,8 +580,15 @@ def run_app(project_root: Path | None = None) -> None:
         console.print("\n[yellow]No plugins or entities detected.[/yellow]")
         return
 
+    # Stop Live before enrichment — streaming text goes directly to terminal scrollback
+    _progress.stop()
+    _progress = None
+
     # Step 5b: Enrich proposals with AI-generated reasons (single Claude call)
-    _progress._transition("Recommender Agent", "\U0001f9e0", "recommend")
+    console.print()
+    console.print("  [bold]\U0001f9e0 Recommender Agent[/bold]")
+    console.print("  [dim italic]Building Plugin Proposals[/dim italic]")
+    console.print()
 
     profiles_json = json.dumps(
         [p.model_dump() for p in scan_result.profiles], indent=2, default=str,
@@ -608,6 +615,21 @@ def run_app(project_root: Path | None = None) -> None:
         {"role": "user", "content": enrich_msg},
     ]
 
+    _line_buffer: list[str] = [""]
+
+    def _stream_to_console(event_type: str, event_data: dict[str, Any]) -> None:
+        if event_type != "text_delta":
+            return
+        text = event_data.get("text", "")
+        for ch in text:
+            if ch == "\n":
+                line = _line_buffer[0]
+                if line.strip():
+                    console.print(f"  [dim]│[/dim] {line}")
+                _line_buffer[0] = ""
+            else:
+                _line_buffer[0] += ch
+
     try:
         response_content = run_agent_loop(
             client=client,
@@ -615,28 +637,26 @@ def run_app(project_root: Path | None = None) -> None:
             tools=[],
             messages=messages,
             project_root=project_root,
-            on_event=_on_event,
+            on_event=_stream_to_console,
             max_turns=1,
         )
     except Exception as e:
-        _progress.stop()
-        _progress = None
         console.print(f"\n[yellow]Enrichment failed, using basic proposals: {e}[/yellow]")
         show_plugin_proposals(plugin_proposals)
         show_entity_proposals(entity_proposals)
         plugin_proposals, entity_proposals = prompt_review(plugin_proposals, entity_proposals, client)
-        # fall through to apply phase below
         accepted_plugins = [p for p in plugin_proposals if p.accepted]
         accepted_entities = [e for e in entity_proposals if e.accepted]
         if not accepted_plugins and not accepted_entities:
             console.print("[yellow]Nothing to apply. Exiting.[/yellow]")
             return
         _save_baseline(project_root)
-        # jump to apply phase handled below
         response_content = []
 
-    _progress.stop()
-    _progress = None
+    # Flush last line
+    if _line_buffer[0].strip():
+        console.print(f"  [dim]│[/dim] {_line_buffer[0]}")
+    console.print()
 
     enriched_plugins, enriched_entities = parse_proposals_from_response(response_content)
     if enriched_plugins:
