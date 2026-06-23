@@ -19,12 +19,13 @@ from rich import box
 import yaml
 
 from ..agents.client import create_client
-from ..agents.prompts import build_unified_system
+from ..agents.prompts import build_unified_system, build_verify_system
 from ..agents.session import MODEL, run_agent_loop
-from ..agents.tools import ALL_TOOLS
+from ..agents.tools import ALL_TOOLS, RESTART_RHDH_TOOL, CHECK_RHDH_HEALTH_TOOL, DIAGNOSE_PLUGIN_ERRORS_TOOL, READ_CONTAINER_LOGS_TOOL
 from ..knowledge import PluginKnowledgeBase, extract_catalog_index
 from ..models import CatalogEntityProposal, OnboardingState, PluginProposal
 from ..scanner import pre_scan_all
+from ..tools.config_writer import apply_configs
 from .progress import AgentProgressDisplay
 
 console = Console()
@@ -659,34 +660,57 @@ def run_app(project_root: Path | None = None) -> None:
     # Snapshot baseline app-config before the agent modifies it
     _save_baseline(project_root)
 
-    # Step 8: Apply
+    # Step 8: Apply — deterministic config writes + lightweight verify agent
     _progress = AgentProgressDisplay(console)
     _progress.phase = "apply"
-    _progress.specialist = "Config Writer Agent"
+    _progress.specialist = "Config Writer"
     _progress.specialist_icon = "✍️"
     _progress.start()
 
-    apply_msg = (
-        "Apply these approved proposals. Write the config files, restart RHDH, and verify health.\n\n"
-        f"Plugins:\n```json\n{json.dumps([p.model_dump() for p in accepted_plugins], indent=2, default=str)}\n```\n\n"
-        f"Entities:\n```json\n{json.dumps([e.model_dump() for e in accepted_entities], indent=2, default=str)}\n```"
-    )
-    messages.append({"role": "user", "content": apply_msg})
-
     try:
-        run_agent_loop(
-            client=client,
-            system=system_prompt,
-            tools=ALL_TOOLS,
-            messages=messages,
-            project_root=project_root,
+        write_result = apply_configs(
+            project_root,
+            accepted_plugins,
+            accepted_entities,
             on_event=_on_event,
-            knowledge_base=kb,
         )
     except Exception as e:
         _progress.stop()
         _progress = None
-        console.print(f"\n[red]Apply phase failed: {e}[/red]")
+        console.print(f"\n[red]Config write failed: {e}[/red]")
+        return
+
+    if write_result["errors"]:
+        for err in write_result["errors"]:
+            console.print(f"  [red]✕[/red] {err}")
+
+    _progress._transition("Verify Agent", "🔍", "verify")
+
+    verify_tools = [RESTART_RHDH_TOOL, CHECK_RHDH_HEALTH_TOOL, DIAGNOSE_PLUGIN_ERRORS_TOOL, READ_CONTAINER_LOGS_TOOL]
+    reinstall = write_result["plugins_changed"]
+    file_list = "\n".join(f"  - {f}" for f in write_result["written_files"])
+    verify_msg = (
+        f"Config files written successfully:\n{file_list}\n\n"
+        f"Restart RHDH with reinstall_plugins={reinstall} and verify health."
+    )
+    verify_messages: list[dict[str, Any]] = [
+        {"role": "user", "content": verify_msg},
+    ]
+
+    try:
+        run_agent_loop(
+            client=client,
+            system=build_verify_system(),
+            tools=verify_tools,
+            messages=verify_messages,
+            project_root=project_root,
+            on_event=_on_event,
+            max_turns=5,
+        )
+    except Exception as e:
+        _progress.stop()
+        _progress = None
+        console.print(f"\n[red]Verify phase failed: {e}[/red]")
         return
 
     _progress.stop()

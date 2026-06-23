@@ -17,13 +17,14 @@ TOOL_TO_SPECIALIST: dict[str, tuple[str, str, str]] = {
     "get_repo_languages":   ("Scanner Agent",          "\U0001f50d", "scan"),
     "read_repo_file":       ("Scanner Agent",          "\U0001f50d", "scan"),
     "lookup_plugin_config": ("Recommender Agent",      "\U0001f9e0", "analyze"),
-    "write_yaml":           ("Config Writer Agent",    "✍️",  "apply"),
-    "merge_yaml":           ("Config Writer Agent",    "✍️",  "apply"),
-    "write_file":           ("Config Writer Agent",    "✍️",  "apply"),
-    "restart_rhdh":         ("Config Writer Agent",    "✍️",  "apply"),
-    "check_rhdh_health":    ("Config Writer Agent",    "✍️",  "verify"),
-    "diagnose_plugin_errors": ("Config Writer Agent",  "✍️",  "verify"),
-    "read_container_logs":  ("Config Writer Agent",    "✍️",  "verify"),
+    "write_yaml":           ("Config Writer",          "✍️",  "apply"),
+    "merge_yaml":           ("Config Writer",          "✍️",  "apply"),
+    "write_file":           ("Config Writer",          "✍️",  "apply"),
+    "write_techdocs":       ("Config Writer",          "✍️",  "apply"),
+    "restart_rhdh":         ("Verify Agent",           "🔍",  "verify"),
+    "check_rhdh_health":    ("Verify Agent",           "🔍",  "verify"),
+    "diagnose_plugin_errors": ("Verify Agent",         "🔍",  "verify"),
+    "read_container_logs":  ("Verify Agent",           "🔍",  "verify"),
 }
 
 PHASE_DISPLAY: dict[str, str] = {
@@ -72,6 +73,8 @@ def _describe_tool(name: str, inp: dict[str, Any]) -> str:
         return "Scanning logs for plugin errors"
     if name == "read_container_logs":
         return f"Reading {inp.get('service', 'rhdh')} container logs"
+    if name == "write_techdocs":
+        return f"Generating TechDocs for {inp.get('entity', '')}"
     return f"Running {name}"
 
 
@@ -87,7 +90,7 @@ def _summarize_result(name: str, result: dict[str, Any]) -> str:
     if name == "diagnose_plugin_errors":
         c = result.get("count", 0)
         return f"{c} errors found" if c else "no errors"
-    if name in ("write_yaml", "merge_yaml", "write_file"):
+    if name in ("write_yaml", "merge_yaml", "write_file", "write_techdocs"):
         return "written" if result.get("success") else result.get("error", "failed")
     if name == "restart_rhdh":
         mode = result.get("mode", "fast")
@@ -280,7 +283,6 @@ class AgentProgressDisplay:
         self._tool_start = None
 
     def _transition(self, new_specialist: str, icon: str, phase: str) -> None:
-        self._finalize_section()
         signal_info = ""
         if self.specialist == "Scanner Agent" and self._tool_history:
             scans = [t for t in self._tool_history if t["tool"] == "scan_repo_tree"]
@@ -288,6 +290,8 @@ class AgentProgressDisplay:
         elif self.specialist == "Recommender Agent" and self._tool_history:
             lookups = [t for t in self._tool_history if t["tool"] == "lookup_plugin_config"]
             signal_info = f"{len(lookups)} plugin configs verified" if lookups else ""
+
+        self._finalize_section()
 
         if signal_info:
             self._handoff_message = f"Context passed to {new_specialist}: {signal_info}"
@@ -298,8 +302,6 @@ class AgentProgressDisplay:
         self.specialist = new_specialist
         self.specialist_icon = icon
         self.phase = phase
-        self._tool_history = []
-        self._thinking_lines = []
 
     def _finalize_section(self) -> None:
         if not self._tool_history and not self._thinking_lines:
@@ -311,6 +313,8 @@ class AgentProgressDisplay:
             "tools": list(self._tool_history),
             "handoff": self._handoff_message,
         })
+        self._tool_history = []
+        self._thinking_lines = []
 
     def _now_frame(self) -> int:
         return int(time.time() * SPINNER_SPEED)
